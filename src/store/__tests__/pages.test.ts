@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { setBackend } from '@/backend'
 import { MockBackend } from '@/backend/mock'
-import { findParentFolder, useApp } from '../app'
+import { countPages, findParentFolder, useApp } from '../app'
 
 const initialState = useApp.getState()
 let mock: MockBackend
@@ -64,6 +64,45 @@ describe('削除', () => {
     await app().openPage('日記/2025/今日の振り返り.md')
     await app().deletePage('学び/技術/技術調査メモ.md')
     expect(app().page?.path).toBe('日記/2025/今日の振り返り.md')
+  })
+})
+
+describe('削除の確認', () => {
+  const PARENT = '検証/子ページのあるページ.md'
+
+  it('子ページを持つページは、件数を示して確認する(まだ消さない)', async () => {
+    await app().requestDelete(PARENT)
+    expect(app().notice).toMatchObject({ tone: 'warning', title: 'このページと子ページ 3 件をゴミ箱に移動します', focus: true })
+    expect(app().notice?.actions.map((a) => a.label)).toEqual(['ゴミ箱に移動', 'キャンセル'])
+    expect(treeHas(PARENT)).toBe(true)
+  })
+
+  it('「ゴミ箱に移動」で子ページごと消え、開いていた子ページも閉じて最近のページを開く', async () => {
+    await app().openPage('検証/子ページのあるページ/子ページ2/孫ページ.md')
+    await app().requestDelete(PARENT)
+    await app().notice?.actions[0].run()
+    expect(treeHas(PARENT)).toBe(false)
+    expect(treeHas('検証/子ページのあるページ/子ページ2/孫ページ.md')).toBe(false)
+    expect(app().notice?.title).toBe('ゴミ箱に移動しました')
+    expect(app().page?.path).not.toMatch(/^検証\/子ページのあるページ/)
+  })
+
+  it('「キャンセル」では何も消さない', async () => {
+    await app().requestDelete(PARENT)
+    await app().notice?.actions[1].run()
+    expect(treeHas(PARENT)).toBe(true)
+  })
+
+  it('子を持たないページは、確認なしで削除する', async () => {
+    await app().requestDelete('学び/技術/技術調査メモ.md')
+    expect(treeHas('学び/技術/技術調査メモ.md')).toBe(false)
+    expect(app().notice?.title).toBe('ゴミ箱に移動しました')
+  })
+
+  it('ツリーでは、同じ名前のフォルダの中身がページの子として並ぶ(バックエンドと同じ形)', () => {
+    const parent = app().tree.find((n) => n.path === '検証')?.children.find((n) => n.path === PARENT)
+    expect(parent?.kind).toBe('page')
+    expect(countPages(parent?.children ?? [])).toBe(3)
   })
 })
 

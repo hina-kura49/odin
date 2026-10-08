@@ -108,7 +108,7 @@ function Tree() {
   const openPage = useApp((s) => s.openPage)
   const prefetch = useApp((s) => s.prefetch)
   const newPage = useApp((s) => s.newPage)
-  const deletePage = useApp((s) => s.deletePage)
+  const requestDelete = useApp((s) => s.requestDelete)
   const focusTitle = useApp((s) => s.focusTitle)
 
   // 最上位のフォルダと、選択中のページの祖先は最初から開いておく
@@ -184,7 +184,7 @@ function Tree() {
             label: '名前を変更',
             run: () => void openPage(row.node.path).then(() => focusTitle(row.node.path, true)),
           },
-          { label: '削除', keys: '⌘⌫', run: () => void deletePage(row.node.path) },
+          { label: '削除', keys: '⌘⌫', run: () => void requestDelete(row.node.path) },
         ]
       : [{ label: 'このフォルダに新規ページ', run: () => void newPage({ folder: row.node.path }) }]
 
@@ -236,7 +236,7 @@ function Tree() {
       case 'Delete':
         if ((e.metaKey || e.key === 'Delete') && isPage(row.node)) {
           handled()
-          void deletePage(row.node.path)
+          void requestDelete(row.node.path)
         }
         break
       case 'F10':

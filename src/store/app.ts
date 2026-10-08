@@ -16,7 +16,8 @@ export type OpenPage = { path: string; loadId: number } & ({ content: string; ve
 
 export type NoticeAction = { label: string; run: () => void | Promise<void> }
 /** 画面上部の通知(デザイン 7)。warning は確認が必要なもの、info は知らせるだけのもの */
-export type Notice = { id: number; tone: 'warning' | 'info'; title: string; body?: string; actions: NoticeAction[] }
+/** focus: 出たときに最初のボタンへ入力位置を移す(キーボードだけで答えられるようにする)。閉じたら元の場所へ戻す */
+export type Notice = { id: number; tone: 'warning' | 'info'; title: string; body?: string; actions: NoticeAction[]; focus?: boolean }
 
 type AppState = {
   /** loading: 起動中 / no-vault: 初回起動(保管庫未選択) / ready: 使える */
@@ -50,6 +51,8 @@ type AppState = {
   createPage(parentPath: string | null, title: string): Promise<PageMeta | null>
   renamePage(path: string, newTitle: string): Promise<PageMeta | null>
   deletePage(path: string): Promise<void>
+  /** 削除の入口。子ページを持つページだけ、件数を示して確認してから削除する */
+  requestDelete(path: string): Promise<void>
   /** 新規ページを作って開き、タイトルを選んだ状態にする。sibling: 開いているページと同じフォルダ / child: 子ページ / folder: 指定のフォルダ */
   newPage(where: 'sibling' | 'child' | { folder: string | null }): Promise<void>
   focusTitle(path: string, select?: boolean): void
@@ -63,6 +66,8 @@ let loadSeq = 0
 let noticeSeq = 0
 let noticeTimer: ReturnType<typeof setTimeout> | undefined
 let signalSeq = 0
+
+const descendantPaths = (nodes: TreeNode[]): string[] => nodes.flatMap((n) => [n.path, ...descendantPaths(n.children)])
 
 const findNode = (nodes: TreeNode[], path: string): TreeNode | null => {
   for (const n of nodes) {
@@ -252,18 +257,33 @@ export const useApp = create<AppState>()((set, get) => ({
       get().showNotice({ tone: 'warning', title: '削除できませんでした', body: toBackendError(e).message, actions: [] })
       return
     }
-    const wasOpen = get().page?.path === path
+    // 子ページも一緒に消える(ツリーの子孫)
+    const node = findNode(get().tree, path)
+    const gone = new Set([path, ...(node ? descendantPaths(node.children) : [])])
+    const wasOpen = gone.has(get().page?.path ?? '')
     if (wasOpen) get().closePage()
-    set((s) => {
-      const cache = { ...s.cache }
-      delete cache[path]
-      return { cache }
-    })
+    set((s) => ({ cache: Object.fromEntries(Object.entries(s.cache).filter(([p]) => !gone.has(p))) }))
     await get().refreshTree()
     get().showNotice({ tone: 'info', title: 'ゴミ箱に移動しました', body: '元に戻すときは、Finder のゴミ箱から戻してください。', actions: [] })
     // 開いていたページを消したら、本文を空にせず、最近開いたページを開く
-    const next = wasOpen ? get().recent.find((p) => p.path !== path) : undefined
+    const next = wasOpen ? get().recent.find((p) => !gone.has(p.path)) : undefined
     if (next && !get().page) await get().openPage(next.path)
+  },
+
+  async requestDelete(path) {
+    const node = findNode(get().tree, path)
+    const count = node ? countPages(node.children) : 0
+    if (count === 0) return get().deletePage(path)
+    get().showNotice({
+      tone: 'warning',
+      title: `このページと子ページ ${count} 件をゴミ箱に移動します`,
+      body: '元に戻すときは、Finder のゴミ箱から戻せます。',
+      actions: [
+        { label: 'ゴミ箱に移動', run: () => get().deletePage(path) },
+        { label: 'キャンセル', run: () => {} },
+      ],
+      focus: true,
+    })
   },
 
   async newPage(where) {
@@ -308,6 +328,9 @@ export function ancestorsOf(tree: TreeNode[], path: string): TreeNode[] {
 }
 
 export const isPage = (node: TreeNode) => node.kind === 'page'
+
+/** ツリーの中のページの数(子フォルダの中身も数える) */
+export const countPages = (nodes: TreeNode[]): number => nodes.reduce((n, c) => n + (isPage(c) ? 1 : 0) + countPages(c.children), 0)
 
 /** ページの入っているフォルダ(ツリーの親)。ルートなら null。path は加工せず、ツリーの親子関係から求める */
 export function findParentFolder(tree: TreeNode[], path: string): string | null {

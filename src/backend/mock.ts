@@ -100,16 +100,20 @@ export class MockBackend implements Backend {
 
   async listTree(): Promise<TreeNode[]> {
     await this.delay()
+    // 本物のバックエンドと同じく、ページと同じ名前のフォルダの中身は、そのページの子として並べる
     const nodes = new Map<string, TreeNode>()
     const root: TreeNode[] = []
+    const container = (dir: string) => (dir ? (nodes.get(`${dir}.md`) ?? nodes.get(dir))?.children : root)
     const add = (path: string, kind: TreeNode['kind']) => {
       const node: TreeNode = { path, title: titleOf(path), kind, children: [] }
       nodes.set(path, node)
-      const parent = dirOf(path)
-      ;(parent ? (nodes.get(parent)?.children ?? root) : root).push(node)
+      ;(container(dirOf(path)) ?? root).push(node)
     }
-    for (const folder of this.folders) add(folder, 'folder')
-    for (const path of this.pages.keys()) add(path, 'page')
+    const pageDirs = new Set([...this.pages.keys()].map((p) => p.replace(/\.md$/, '')))
+    // フォルダは浅い順に足す(親が先にあるように)。同じ名前のページがあるフォルダは、ページに合わせる
+    for (const folder of [...this.folders].sort((a, b) => a.split('/').length - b.split('/').length))
+      if (!pageDirs.has(folder)) add(folder, 'folder')
+    for (const path of [...this.pages.keys()].sort((a, b) => a.split('/').length - b.split('/').length)) add(path, 'page')
     return root
   }
 
@@ -169,8 +173,12 @@ export class MockBackend implements Backend {
   async deletePage(path: string): Promise<void> {
     await this.delay()
     this.page(path)
-    this.pages.delete(path)
-    this.recent = this.recent.filter((p) => p !== path)
+    // 子ページ(同じ名前のフォルダの中身)も一緒にゴミ箱へ移す
+    const dir = path.replace(/\.md$/, '')
+    const gone = (p: string) => p === path || p === dir || p.startsWith(`${dir}/`)
+    for (const p of [...this.pages.keys()]) if (gone(p)) this.pages.delete(p)
+    this.folders = this.folders.filter((f) => !gone(f))
+    this.recent = this.recent.filter((p) => !gone(p))
   }
 
   async search(query: string, limit: number): Promise<SearchHit[]> {
