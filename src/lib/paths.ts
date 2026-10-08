@@ -32,14 +32,24 @@ export function relativePath(fromDir: string, to: string): string {
   return [...Array<string>(from.length - common).fill('..'), ...target.slice(common)].join('/')
 }
 
+const UNRESERVED_ASCII = /[A-Za-z0-9\-_./]/
+const UNICODE_SPACE_OR_CONTROL = /[\s\p{Cc}]/u
+
+const percentEncode = (ch: string) =>
+  Array.from(new TextEncoder().encode(ch), (b) => `%${b.toString(16).toUpperCase().padStart(2, '0')}`).join('')
+
 /**
- * リンクの行き先のエンコード。空白 ( ) < > # % ? と制御文字だけをパーセントエンコードする(16進数は大文字)。
- * 日本語などほかの文字はそのまま。バックエンドの改名処理と一致させる必要がある。
+ * リンクの行き先のエンコード(バックエンドと同じ規則。フォルダ名の部分にも同じ規則を当てる)。
+ * - ASCII の文字は、英字・数字・- _ . と区切りの / だけをそのまま書き、ほかはすべてパーセントエンコードする(16進数は大文字)
+ * - ASCII 以外の文字は、Unicode の空白と制御文字だけをエンコードし、ほかはそのまま書く
+ * - <...> で囲まない
  */
 export function encodeLinkDestination(path: string): string {
-  // 制御文字はわざと対象にしている
-  // oxlint-disable-next-line no-control-regex
-  return path.replace(/[\s()<>#%?\u0000-\u001f\u007f]/g, (ch) =>
-    Array.from(new TextEncoder().encode(ch), (b) => `%${b.toString(16).toUpperCase().padStart(2, '0')}`).join(''),
-  )
+  let out = ''
+  for (const ch of path) {
+    const ascii = ch.codePointAt(0)! < 0x80
+    const keep = ascii ? UNRESERVED_ASCII.test(ch) : !UNICODE_SPACE_OR_CONTROL.test(ch)
+    out += keep ? ch : percentEncode(ch)
+  }
+  return out
 }

@@ -7,9 +7,14 @@ import { $prose } from '@milkdown/kit/utils'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { onWindowClose } from '@/lib/platform'
 import { configureMarkdown } from './markdown'
+import { EditorOverlays } from './EditorOverlays'
+import { extraKeys } from './keys'
 import { codeHighlight, imageView, listItemView, markdownPaste, setImagePagePath, taskToggle } from './plugins'
 import { setActiveSession } from './registry'
 import { EditorSession } from './session'
+import { slashPlugin } from './slash'
+import { trackedPosPlugin } from './tracked-pos'
+import { createViewBridge } from './view-bridge'
 
 type Props = {
   /** 表示するページ。path と loadId が変わったときだけ文書を差し替える(保存結果の反映では差し替えない) */
@@ -45,6 +50,8 @@ const sessionBridge = (getSession: () => EditorSession | null) =>
 
 export function MarkdownEditor({ path, loadId, content, version, onReady }: Props) {
   const mountRef = useRef<HTMLDivElement>(null)
+  const [host, setHost] = useState<HTMLDivElement | null>(null)
+  const [bridge] = useState(createViewBridge)
   const [editor, setEditor] = useState<Editor | null>(null)
   const sessionRef = useRef<EditorSession | null>(null)
   const shownKey = useRef<string | null>(null)
@@ -64,6 +71,10 @@ export function MarkdownEditor({ path, loadId, content, version, onReady }: Prop
       .use(taskToggle)
       .use(listItemView)
       .use(sessionBridge(() => sessionRef.current))
+      .use(slashPlugin)
+      .use(trackedPosPlugin)
+      .use(extraKeys)
+      .use(bridge.plugin)
       .create()
       .then((e) => {
         if (cancelled) {
@@ -71,6 +82,8 @@ export function MarkdownEditor({ path, loadId, content, version, onReady }: Prop
           return
         }
         created = e
+        // 開発時だけ、開発者ツールからエディタの状態を調べられるようにする
+        if (import.meta.env.DEV) Object.assign(window, { __editorView: e.action((ctx) => ctx.get(editorViewCtx)) })
         sessionRef.current = new EditorSession(e)
         setActiveSession(sessionRef.current)
         setEditor(e)
@@ -83,7 +96,7 @@ export function MarkdownEditor({ path, loadId, content, version, onReady }: Prop
       // 未保存の変更を書き出してから片づける
       void (session?.flush() ?? Promise.resolve()).finally(() => void created?.destroy())
     }
-  }, [])
+  }, [bridge])
 
   // ウィンドウを閉じる時に保存する
   useEffect(() => onWindowClose(() => sessionRef.current?.flush() ?? Promise.resolve()), [])
@@ -117,5 +130,11 @@ export function MarkdownEditor({ path, loadId, content, version, onReady }: Prop
     swap()
   }, [editor, key, path, content, version, onReady])
 
-  return <div ref={mountRef} className="odin-editor" style={{ visibility: 'hidden' }} />
+  return (
+    // host: ブロックの左の余白(ドラッグのハンドル)も含めて、マウスの位置を受け取る領域
+    <div ref={setHost} className="editor-host relative">
+      <div ref={mountRef} className="odin-editor" style={{ visibility: 'hidden' }} />
+      {editor && <EditorOverlays editor={editor} bridge={bridge} pagePath={path} host={host} />}
+    </div>
+  )
 }
