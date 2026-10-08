@@ -137,21 +137,27 @@ proptest! {
         prop_assert_eq!(snapshot(&v.root()), before);
     }
 
-    /// どんな新しいタイトルでも、書き換えたリンクを Markdown として解釈すると、
-    /// 表示文字列は新しいタイトルに、行き先は新しいファイル名になる。
+    /// どんな新しいタイトルでも、書き換えたリンクを GFM として解釈すると、
+    /// (「;」は含めない。「&名前;」の扱いは仕様確認待ち)
+    /// 表示文字列は新しいタイトルに、行き先は新しいファイル名になる。表の中でも列の数は変わらない。
     #[test]
     fn rewritten_link_reads_back_as_new_title(
-        new_title in "新[a-zあ-ん0-9*_`<>&\\[\\]#!~|()%?;=+ \u{3000}\u{A0}]{0,12}[a-zあ-ん*_`<&\\[\\]]",
+        new_title in "新[a-zあ-ん0-9*_`<>&\\[\\]#!~|()%?=+ \u{3000}\u{A0}]{0,12}[a-zあ-ん*_`<&~|\\[\\]]",
     ) {
         let v = VaultBuilder::new()
             .file("a.md", "")
             .file("other.md", "前の文 [a](a.md) 後の文\n")
+            .file("table.md", "| 列1 | 列2 |\n|---|---|\n| [a](a.md) | x |\n")
             .open();
 
         let meta = v.rename_page("a.md", &new_title).unwrap();
 
         prop_assert_eq!(&meta.title, &new_title);
+        let expected = [(new_title.clone(), format!("{new_title}.md"))];
         let other = String::from_utf8(v.disk_bytes("other.md")).unwrap();
-        prop_assert_eq!(links_in(&other), [(new_title.clone(), format!("{new_title}.md"))]);
+        prop_assert_eq!(links_in(&other), expected.clone());
+        let table = String::from_utf8(v.disk_bytes("table.md")).unwrap();
+        prop_assert_eq!(table_shape(&table), [2, 2], "{:?}", table);
+        prop_assert_eq!(links_in(&table), expected);
     }
 }

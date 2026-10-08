@@ -375,26 +375,56 @@ impl TestVault {
     }
 }
 
-/// Markdown として解釈し、リンクごとに(表示文字列, パーセントデコードした行き先)を返す。
+/// フロントエンドと同じく、GFM の拡張(取り消し線、表、タスクリスト)を有効にした解釈。
+fn gfm(markdown: &str) -> pulldown_cmark::Parser<'_> {
+    use pulldown_cmark::Options;
+    let options =
+        Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
+    pulldown_cmark::Parser::new_ext(markdown, options)
+}
+
+/// GFM として解釈し、リンクごとに(表示文字列, パーセントデコードした行き先)を返す。
+/// 表示文字列の中に書式(強調、取り消し線、コードなど)があれば、タイトルに現れない NUL を混ぜて、
+/// どんなタイトルとも一致しないようにする。
 pub fn links_in(markdown: &str) -> Vec<(String, String)> {
-    use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+    use pulldown_cmark::{Event, Tag, TagEnd};
     let mut out = Vec::new();
     let mut current: Option<(String, String)> = None;
-    for event in Parser::new(markdown) {
+    for event in gfm(markdown) {
         match event {
             Event::Start(Tag::Link { dest_url, .. }) => {
                 current = Some((String::new(), percent_decode(&dest_url)))
             }
-            Event::Text(t) | Event::Code(t) => {
+            Event::Text(t) => {
                 if let Some((text, _)) = current.as_mut() {
                     text.push_str(&t);
                 }
             }
             Event::End(TagEnd::Link) => out.extend(current.take()),
-            _ => {}
+            _ => {
+                if let Some((text, _)) = current.as_mut() {
+                    text.push('\0');
+                }
+            }
         }
     }
     out
+}
+
+/// GFM として解釈し、表の各行(見出し行を含む)のセルの数を返す。
+pub fn table_shape(markdown: &str) -> Vec<usize> {
+    use pulldown_cmark::{Event, Tag, TagEnd};
+    let mut rows = Vec::new();
+    let mut cells = 0;
+    for event in gfm(markdown) {
+        match event {
+            Event::Start(Tag::TableHead | Tag::TableRow) => cells = 0,
+            Event::Start(Tag::TableCell) => cells += 1,
+            Event::End(TagEnd::TableHead | TagEnd::TableRow) => rows.push(cells),
+            _ => {}
+        }
+    }
+    rows
 }
 
 /// `%XX` をバイトに戻す(テスト用の素朴な実装)。

@@ -810,11 +810,11 @@ fn rename_page_does_not_escape_other_characters_of_new_title() {
         .file("other.md", "[a](a.md)")
         .open();
 
-    rename(&v, "a.md", "#1 (案)!~|ＡＢ");
+    rename(&v, "a.md", "#1 (案)!ＡＢ");
 
     assert_eq!(
         text(&v, "other.md"),
-        "[#1 (案)!~|ＡＢ](%231%20%28案%29!~|ＡＢ.md)"
+        "[#1 (案)!ＡＢ](%231%20%28案%29!ＡＢ.md)"
     );
 }
 
@@ -822,20 +822,134 @@ fn rename_page_does_not_escape_other_characters_of_new_title() {
 fn rename_page_keeps_link_text_with_emphasis() {
     let v = VaultBuilder::new()
         .file("a.md", "")
-        .file("other.md", "[**a**](a.md) [*a*](a.md) [`a`](a.md)")
+        .file(
+            "other.md",
+            "[**a**](a.md) [*a*](a.md) [`a`](a.md) [~~a~~](a.md)",
+        )
         .open();
 
     rename(&v, "a.md", "b");
 
     assert_eq!(
         text(&v, "other.md"),
-        "[**a**](b.md) [*a*](b.md) [`a`](b.md)"
+        "[**a**](b.md) [*a*](b.md) [`a`](b.md) [~~a~~](b.md)"
+    );
+}
+
+#[test]
+fn rename_page_escapes_tilde_and_pipe_of_new_title_in_link_text() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[a](a.md)")
+        .open();
+
+    rename(&v, "a.md", "a~b|c");
+
+    // 行き先の「|」の書き方は仕様確認待ちなので、表示文字列の部分だけを比べる。
+    let other = text(&v, "other.md");
+    assert!(other.starts_with("[a\\~b\\|c]("), "{other:?}");
+    assert_eq!(
+        links_in(&other),
+        [("a~b|c".to_string(), "a~b|c.md".to_string())]
+    );
+}
+
+#[test]
+fn new_title_with_double_tilde_does_not_become_strikethrough() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[a](a.md)")
+        .open();
+
+    rename(&v, "a.md", "a~~b~~c");
+
+    let other = text(&v, "other.md");
+    assert_eq!(other, "[a\\~\\~b\\~\\~c](a~~b~~c.md)");
+    assert_eq!(
+        links_in(&other),
+        [("a~~b~~c".to_string(), "a~~b~~c.md".to_string())]
+    );
+}
+
+#[test]
+fn rename_page_rewrites_link_in_table_cell() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "| 列1 | 列2 |\n|---|---|\n| [a](a.md) | x |\n")
+        .open();
+
+    rename(&v, "a.md", "b");
+
+    assert_eq!(
+        text(&v, "other.md"),
+        "| 列1 | 列2 |\n|---|---|\n| [b](b.md) | x |\n"
+    );
+}
+
+#[test]
+fn renaming_to_title_with_pipe_keeps_table_columns() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "| 列1 | 列2 |\n|---|---|\n| [a](a.md) | x |\n")
+        .open();
+
+    rename(&v, "a.md", "p|q");
+
+    let other = text(&v, "other.md");
+    assert_eq!(table_shape(&other), [2, 2], "{other:?}");
+    assert_eq!(
+        links_in(&other),
+        [("p|q".to_string(), "p|q.md".to_string())]
+    );
+}
+
+#[test]
+fn rename_page_rewrites_link_inside_strikethrough() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "~~消した [a](a.md) 行~~\n")
+        .open();
+
+    rename(&v, "a.md", "b");
+
+    assert_eq!(text(&v, "other.md"), "~~消した [b](b.md) 行~~\n");
+}
+
+#[test]
+fn rename_page_rewrites_link_in_task_list_item() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "- [ ] [a](a.md) を読む\n- [x] 済み [a](a.md)\n")
+        .open();
+
+    rename(&v, "a.md", "b");
+
+    assert_eq!(
+        text(&v, "other.md"),
+        "- [ ] [b](b.md) を読む\n- [x] 済み [b](b.md)\n"
     );
 }
 
 #[test]
 fn escaped_new_title_reads_back_as_the_new_title() {
-    let title = "[重要] a*b_c`d<e&f &amp; g";
+    let title = "[重要] a*b_c`d<e&f & g~h|i";
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[a](a.md)")
+        .open();
+
+    rename(&v, "a.md", title);
+
+    assert_eq!(
+        links_in(&text(&v, "other.md")),
+        [(title.to_string(), format!("{title}.md"))]
+    );
+}
+
+#[test]
+#[ignore = "仕様確認待ち(質問69): 行き先の「&名前;」は実体参照として読み替えられるため、回答37のままでは別の名前を指す"]
+fn new_title_with_entity_like_text_reads_back_as_the_new_title() {
+    let title = "a &amp; b &lt;c&gt;";
     let v = VaultBuilder::new()
         .file("a.md", "")
         .file("other.md", "[a](a.md)")
