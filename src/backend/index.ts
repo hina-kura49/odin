@@ -1,8 +1,10 @@
+import { isCaptureWindow } from '@/lib/platform'
 import { MockBackend } from './mock'
+import { CaptureRelayBackend, serveMockCaptures } from './mock-relay'
 import { TauriBackend } from './tauri'
 import type { Backend } from './types'
 
-export { BackendError, isBackendError, toBackendError } from './types'
+export { BackendError, INBOX_PATH, isBackendError, toBackendError } from './types'
 export type { Backend, BackendErrorKind, NodeKind, PageMeta, SearchHit, Snippet, TreeNode, WriteResult } from './types'
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -26,7 +28,21 @@ function createMock(): MockBackend {
   return mock
 }
 
-let current: Backend = isTauri ? new TauriBackend() : createMock()
+/**
+ * どのバックエンドを使うか。
+ * - ブラウザ(vite dev)では MockBackend
+ * - Tauri のアプリでも、core/ をつなぐまでは MockBackend(VITE_BACKEND=tauri のときだけ TauriBackend)
+ *   Mock はウィンドウごとに別のメモリなので、クイックキャプチャのウィンドウはメインのウィンドウの Mock に取り込みを頼む
+ */
+function createBackend(): Backend {
+  if (isTauri && import.meta.env.VITE_BACKEND === 'tauri') return new TauriBackend()
+  if (isTauri && isCaptureWindow()) return new CaptureRelayBackend()
+  const mock = createMock()
+  if (isTauri) serveMockCaptures(mock)
+  return mock
+}
+
+let current: Backend = createBackend()
 
 export const backend = (): Backend => current
 

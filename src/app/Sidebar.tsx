@@ -15,6 +15,7 @@ const isTauri = '__TAURI_INTERNALS__' in window
 export function Sidebar({ collapsed }: { collapsed: boolean }) {
   const toggleSidebar = useApp((s) => s.toggleSidebar)
   const newPage = useApp((s) => s.newPage)
+  const openInbox = useApp((s) => s.openInbox)
   const [notesOpen, setNotesOpen] = useState(true)
 
   return (
@@ -40,7 +41,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
 
       <nav className="flex flex-col gap-0.5 px-2 pt-1">
         <NavItem icon={<FileText size={16} />} label="すべてのページ" title="ページを探す (⌘K)" onClick={openPalette} />
-        <NavItem icon={<CircleArrowDown size={16} />} label="クイックキャプチャ" />
+        <NavItem icon={<CircleArrowDown size={16} />} label="クイックキャプチャ" title="Inbox を開く" onClick={() => void openInbox()} />
       </nav>
 
       <button

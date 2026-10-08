@@ -1,6 +1,6 @@
 import { dirOf, hasScheme, resolveInVault } from '@/lib/paths'
 import { MOCK_FOLDERS, MOCK_PAGES, MOCK_RECENT, MOCK_SPECIAL, MOCK_VAULT } from './mock-data'
-import { BackendError, type Backend, type PageMeta, type SearchHit, type TreeNode, type WriteResult } from './types'
+import { BackendError, INBOX_PATH as INBOX, type Backend, type PageMeta, type SearchHit, type TreeNode, type WriteResult } from './types'
 
 export type MockOptions = {
   /** 前回開いた保管庫。null なら初回起動(フォルダ未選択)の状態 */
@@ -11,7 +11,6 @@ export type MockOptions = {
   latencyMs?: number
 }
 
-const INBOX = 'Inbox.md'
 
 type MockPage = { content: string; version: string; modifiedAt: number; readOnly?: boolean; notUtf8?: boolean }
 
@@ -213,9 +212,12 @@ export class MockBackend implements Backend {
 
   async captureToInbox(text: string): Promise<void> {
     await this.delay()
-    const inbox = this.pages.get(INBOX)
-    const content = inbox ? `${inbox.content.replace(/\n*$/, '\n')}- ${text}\n` : `- ${text}\n`
-    this.put(INBOX, content)
+    if (text.trim() === '') return
+    // 本物のバックエンドと同じく、前の内容との間を空行1つで区切って末尾に足す(前の内容はそのまま)
+    const existing = this.pages.get(INBOX)?.content ?? ''
+    const sep = existing === '' || existing.endsWith('\n\n') ? '' : existing.endsWith('\n') ? '\n' : '\n\n'
+    this.put(INBOX, `${existing}${sep}${text}\n`)
+    this.touch(INBOX)
     this.notify()
   }
 

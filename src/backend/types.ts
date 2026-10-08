@@ -10,6 +10,9 @@
 // - 知らないエラーの種類が来ても落ちない。
 // - onExternalChange が呼ばれたら、listTree を取り直し、開いているページは readPage で version を比べる。
 
+/** captureToInbox の書き込み先。バックエンドが保管庫の直下に作る */
+export const INBOX_PATH = 'Inbox.md'
+
 export type NodeKind = 'page' | 'folder'
 export type TreeNode = { path: string; title: string; kind: NodeKind; children: TreeNode[] }
 export type PageMeta = { path: string; title: string; modifiedAt: number } // UNIX時刻のミリ秒

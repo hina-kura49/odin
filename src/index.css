@@ -91,6 +91,12 @@ body,
   height: 100%;
 }
 
+/* クイックキャプチャのウィンドウは透かし、角の丸いパネルだけを見せる */
+html[data-window='capture'] body {
+  background: transparent;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   background: var(--bg);

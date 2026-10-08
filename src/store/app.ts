@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { backend, isBackendError, toBackendError, type PageMeta, type TreeNode } from '@/backend'
+import { backend, INBOX_PATH, isBackendError, toBackendError, type PageMeta, type TreeNode } from '@/backend'
+import CAPTURE_SHORTCUT from '@/capture/shortcut.json'
 import { activeSession, flushActive } from '@/editor/registry'
 
 export const RECENT_LIMIT = 20
@@ -42,6 +43,8 @@ type AppState = {
   refreshTree(): Promise<void>
   openPage(path: string): Promise<void>
   prefetch(path: string): void
+  /** Inbox(クイックキャプチャの取り込み先)を開く。まだなければ、作られ方を知らせる */
+  openInbox(): Promise<void>
   closePage(): void
   /** ディスクの内容で、開いているページを差し替える(未保存の変更がないときだけ呼ぶ) */
   replaceOpenPage(path: string, fresh: PageContent): void
@@ -142,6 +145,16 @@ export const useApp = create<AppState>()((set, get) => ({
     void backend()
       .recentPages(RECENT_LIMIT)
       .then((recent) => set({ recent }))
+  },
+
+  async openInbox() {
+    if (findNode(get().tree, INBOX_PATH)) return get().openPage(INBOX_PATH)
+    get().showNotice({
+      tone: 'info',
+      title: 'Inbox はまだありません',
+      body: `クイックキャプチャ(${CAPTURE_SHORTCUT.label})でメモを取り込むと作られます。`,
+      actions: [],
+    })
   },
 
   prefetch(path) {

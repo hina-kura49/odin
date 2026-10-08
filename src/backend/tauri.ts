@@ -1,5 +1,5 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { emit, listen } from '@tauri-apps/api/event'
 import { dirOf, hasScheme, resolveInVault } from '@/lib/paths'
 import { toBackendError, type Backend, type PageMeta, type SearchHit, type TreeNode, type WriteResult } from './types'
 
@@ -60,8 +60,10 @@ export class TauriBackend implements Backend {
   recentPages(limit: number): Promise<PageMeta[]> {
     return call<PageMeta[]>('recent_pages', { limit })
   }
-  captureToInbox(text: string): Promise<void> {
-    return call<void>('capture_to_inbox', { text })
+  async captureToInbox(text: string): Promise<void> {
+    await call<void>('capture_to_inbox', { text })
+    // 取り込みは別のウィンドウから行うので、メインのウィンドウに変更を知らせる(Inbox を開いていれば読み直される)
+    await emit(EXTERNAL_CHANGE_EVENT)
   }
   assetUrl(pagePath: string, src: string): string | null {
     if (hasScheme(src)) return src

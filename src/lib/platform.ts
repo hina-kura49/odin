@@ -1,6 +1,14 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
-const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+
+/** クイックキャプチャのウィンドウか(Tauri の設定で index.html?window=capture を開く。ブラウザでも同じ URL で確かめられる) */
+export const isCaptureWindow = () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('window') === 'capture'
+
+/** いまのウィンドウを隠す(閉じずに残し、次に出すときに待たせない)。ブラウザでは何もしない */
+export function hideCurrentWindow(): void {
+  if (isTauri) void getCurrentWindow().hide()
+}
 
 /**
  * ウィンドウを閉じる時に handler を呼び、終わるまで閉じるのを待つ。
