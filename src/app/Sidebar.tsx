@@ -6,6 +6,7 @@ import { cn } from '@/lib/cn'
 import { flipRows } from '@/lib/flip-rows'
 import { isComposing } from '@/lib/keyboard'
 import { ancestorsOf, isPage, useApp } from '@/store/app'
+import { openPalette } from './palette-store'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 
 /** macOS の信号機ボタン(Tauri の titleBarStyle: Overlay で表示される)の分だけ空ける */
@@ -38,7 +39,7 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
       </div>
 
       <nav className="flex flex-col gap-0.5 px-2 pt-1">
-        <NavItem icon={<FileText size={16} />} label="すべてのページ" />
+        <NavItem icon={<FileText size={16} />} label="すべてのページ" title="ページを探す (⌘K)" onClick={openPalette} />
         <NavItem icon={<CircleArrowDown size={16} />} label="クイックキャプチャ" />
       </nav>
 
@@ -69,9 +70,9 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
   )
 }
 
-function NavItem({ icon, label }: { icon: React.ReactNode; label: string }) {
+function NavItem({ icon, label, title, onClick }: { icon: React.ReactNode; label: string; title?: string; onClick?: () => void }) {
   return (
-    <button type="button" className="hover-fade flex items-center gap-2 rounded-sm px-2 py-1.5 text-base hover:bg-border/60">
+    <button type="button" title={title} onClick={onClick} className="hover-fade flex items-center gap-2 rounded-sm px-2 py-1.5 text-base hover:bg-border/60">
       <span className="text-muted">{icon}</span>
       {label}
     </button>

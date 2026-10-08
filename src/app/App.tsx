@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import { backend } from '@/backend'
 import { useShortcut } from '@/lib/keyboard'
 import { useApp } from '@/store/app'
+import { CommandPalette } from './CommandPalette'
+import { openPalette, togglePalette } from './palette-store'
 import { PageView } from './PageView'
 import { Sidebar } from './Sidebar'
 
@@ -26,6 +28,10 @@ export function App() {
   // 新規ページ(開いているページと同じフォルダ) / 子ページ
   useShortcut({ key: 'n', mod: true }, () => void newPage('sibling'), status === 'ready')
   useShortcut({ key: 'n', mod: true, shift: true }, () => void newPage('child'), status === 'ready')
+  // コマンドパレット。⌘P(ページへ移動)と ⌘F(検索)も同じパレットを開く
+  useShortcut({ key: 'k', mod: true }, togglePalette, status === 'ready')
+  useShortcut({ key: 'p', mod: true }, openPalette, status === 'ready')
+  useShortcut({ key: 'f', mod: true }, openPalette, status === 'ready')
 
   if (status === 'loading') return null
   if (status === 'no-vault') {
@@ -43,6 +49,7 @@ export function App() {
     <div className="relative flex h-full overflow-hidden">
       <Sidebar collapsed={sidebarCollapsed} />
       <PageView />
+      <CommandPalette />
     </div>
   )
 }

@@ -154,6 +154,49 @@ body {
   box-shadow: var(--shadow-md);
 }
 
+/* コマンドパレット(デザイン 4) */
+.palette {
+  box-shadow: var(--shadow-lg);
+}
+/* 入力欄はパレットそのものが入力位置を示すので、枠は出さない */
+.palette [cmdk-input]:focus-visible {
+  outline: none;
+}
+.palette [cmdk-group-heading] {
+  padding: 8px 8px 4px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 2px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  cursor: default;
+  transition: background-color var(--duration-hover) var(--ease-move);
+}
+.palette-item[data-selected='true'] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.palette-keys {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+/* 当たった部分だけを強調する。太さは変えない(幅がずれないように) */
+.palette-hit {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text);
+  border-radius: 2px;
+}
+
 /* ブロックのドラッグ(デザイン 3)。動かすのは transform だけ */
 .drag-handle {
   cursor: grab;

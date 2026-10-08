@@ -3,6 +3,9 @@ import { duration, easing, exitRatio, reducedMotion } from './motion'
 
 type Kind = 'menu' | 'palette'
 
+/** 動き(Web Animations)を使えるか。使えない環境(テストなど)では、すぐに出し入れする */
+const ANIMATABLE = typeof Element !== 'undefined' && typeof Element.prototype.animate === 'function'
+
 /**
  * メニューやパレットの出入り。
  * - 入るときは減速しながら現れ、出るときは短く消える(出る動きは入る動きの exit-ratio 倍)
@@ -14,10 +17,12 @@ export function usePresence<T extends HTMLElement>(open: boolean, kind: Kind) {
   const [mounted, setMounted] = useState(open)
   const ref = useRef<T>(null)
   if (open && !mounted) setMounted(true)
+  if (!open && mounted && !ANIMATABLE) setMounted(false)
 
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
+    if (!ANIMATABLE) return
     const hidden = { opacity: 0, transform: reducedMotion() ? 'none' : kind === 'palette' ? 'scale(0.98)' : 'translateY(-4px) scale(0.98)' }
     const shown = { opacity: 1, transform: 'none' }
     // いまの見た目から始める(動いている最中なら、その途中から)

@@ -1,32 +1,181 @@
-# React + TypeScript + Vite
+# Odin
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Odin は macOS 向けのノートアプリです（Tauri 2 で作るデスクトップアプリ）。
+保管庫（ノートを置くフォルダ）の中の Markdown ファイル（`.md`）を、そのまま保存先にします。独自の形式やデータベースにノートを閉じ込めません。
 
-Currently, two official plugins are available:
+- Notion のようなブロック編集ができます。ブロックは、ハンドルをつまんでドラッグするか、`⌘⇧↑` / `⌘⇧↓` で並べ替えられます。
+- `/` を打つと、スラッシュコマンドのメニューが開きます。メニューには、テキスト、見出し1〜3、リスト、番号付きリスト、チェックリスト、引用、コードブロック、表、画像、ページを作る（`/page`）があります。
+- サイドバーにページのツリーを表示します。右クリックのメニューから、開く・子ページを作る・名前を変える・削除するといった操作ができます。子ページを持つページを削除するときだけ、件数を示して確認します。
+- `⌘K`（`⌘P`、`⌘F` も同じ）でコマンドパレットが開きます。ページのタイトル・本文の検索・コマンドを、ひとつの入力欄から探せます。入力が空のときは最近開いたページを出し、`⌘1`〜`⌘5` で開けます。
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 技術の構成
 
-## React Compiler
+| 部分 | 使っているもの |
+| --- | --- |
+| フロントエンド（`src/`） | React 19、TypeScript（strict：型の検査を厳しくする設定）、Vite、Tailwind CSS v4、Milkdown 7（Markdown のエディタ）、TanStack Virtual（長い一覧の仮想表示）、Zustand（状態の管理）、cmdk（コマンドパレット）、Vitest（テスト） |
+| バックエンド（`core/`） | Rust のクレート（ライブラリ）`odin-core`。Tauri には依存しません。別の担当者が作っています |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 動かし方
 
-## Expanding the Oxlint configuration
+Node.js と npm が必要です。
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```sh
+npm install      # 依存パッケージを入れる
+npm run dev      # 開発用サーバーを起動する（http://localhost:5173）
+npm test         # テストを実行する（vitest run）
+npm run lint     # コードの検査をする（oxlint）
+npm run build    # 型の検査（tsc -b）をしてから、本番用にビルドする（vite build）
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`npm run dev` でブラウザから開くと、MockBackend（本物のファイルを使わない、見せかけのバックエンド）で動きます。Rust 側がなくても画面を確かめられます。
+ポートは Tauri から開くときのために 5173 に固定しています（`vite.config.ts` の `strictPort`）。ほかのアプリが 5173 を使っていると起動しません。
+
+### Mock の状態を URL で切り替える
+
+`src/backend/index.ts` が URL の引数（`?` の後ろ）を読み、Mock の状態を変えます。
+
+| 引数 | 意味 |
+| --- | --- |
+| `?vault=none` | 初回起動の状態。保管庫のフォルダがまだ選ばれていません |
+| `?empty` | ページが1つもない保管庫で始めます |
+| `?latency=300` | バックエンドの呼び出しをすべて 300ms 遅らせます（数字はミリ秒）。ページを切り替えるときの確認に使います |
+
+組み合わせることもできます（例：`http://localhost:5173/?empty&latency=500`）。
+
+また、開発者ツールのコンソールから `__mock` で Mock を操作でき、ほかのアプリで変更されたときの動きを再現できます。
+
+```js
+__mock.simulateExternalEdit(path, content) // 外部でファイルが書き換えられた
+__mock.simulateExternalDelete(path)        // 外部でファイルが削除された
+__mock.setReadOnly(path, true)             // ファイルを読み取り専用にする
+```
+
+Tauri の中で開いたとき（`window.__TAURI_INTERNALS__` があるとき）は、Mock ではなく TauriBackend を使います。
+
+### `core/` のテスト
+
+`core/` は独立した Cargo のパッケージです。Rust 標準の `core` と名前がぶつかるので、パッケージ名は `odin-core` にしています。
+
+```sh
+cd core
+cargo test                         # テストを実行する
+cargo bench --bench large_vault    # 大きな保管庫（5,000 ページ）での速さを測る
+```
+
+- テストは `core/tests/` にあります。例を書いて確かめるテスト（`write_page.rs` など）と、proptest（入力を自動で大量に作って確かめる仕組み）を使うテスト（`*_props.rs`）があります。
+- 速さの測定（`benches/large_vault.rs`）は `cargo test` では走りません。目安を超えても失敗にはせず、数値と目安を並べて表示します。
+- いまの `core/src/lib.rs` は骨組みだけで、関数の本体は `todo!()`（未実装の印）です。実装が入るまで、テストはコンパイルできても通りません。
+
+## フォルダの構成
+
+```
+src/
+  backend/   バックエンドとの接続部
+  editor/    Markdown のエディタ
+  app/       画面の部品
+  store/     アプリの状態
+  lib/       小さな共通の処理
+  main.tsx   入口
+  index.css  共通のスタイル
+core/        Rust のバックエンド
+```
+
+### `src/backend`
+
+画面の部品は Tauri を直接呼ばず、必ずここの `Backend` インターフェースを通します。
+
+- `types.ts`：バックエンドとの契約です。`Backend` インターフェースと、やりとりする型（`TreeNode`、`PageMeta`、`WriteResult` など）、エラーの型 `BackendError` を決めています。`version` は受け取った値をそのまま次の `writePage` に渡す、`path` は加工しない、知らないエラーの種類が来ても落ちない、といった約束もここに書いてあります。
+- `mock.ts`：MockBackend。メモリの中だけで動き、ブラウザ単体で使えます。
+- `mock-data.ts`、`mock-samples.ts`：Mock の最初のデータと、表示の確認用のページです。
+- `tauri.ts`：TauriBackend。Tauri の `invoke`（Rust の関数の呼び出し）とイベントを呼ぶだけの薄い層です。Rust 側との取り決め（コマンド名、エラーの形、`external-change` イベントなど）の案がファイルの先頭にあります。
+- `index.ts`：どちらのバックエンドを使うかを決め、`backend()` で返します。テスト用の `setBackend()` もあります。
+
+### `src/editor`
+
+Milkdown を使った Markdown のエディタです。
+
+- `MarkdownEditor.tsx`：エディタの本体の部品です。
+- `session.ts`：1つのエディタの保存を受け持ちます（自動保存、衝突やエラーのときの通知）。
+- `markdown.ts`：Markdown の読み込みと書き出しです。変えていないブロックを原文のまま書き戻す仕組みがここにあります。
+- `slash.ts`、`EditorOverlays.tsx`：スラッシュコマンドと、エディタの上に出すメニュー（書式メニューなど）です。
+- `block-move.ts`、`block-drag.ts`：ブロックの並べ替え（キーボードとドラッグ）です。
+- `keys.ts`：追加のショートカットです。
+- `plugins.ts`：コードの色付け、画像、チェックリスト、貼り付けなどの部品です。
+- `page-link.ts`：`/page` で入れるページへのリンクの作り方です。
+- `registry.ts`：いま表示しているエディタへの窓口です。ストアはここを通して「保存し終える」のを待ちます。
+- `tracked-pos.ts`、`view-bridge.ts`：非同期の処理を待つ間の位置の追跡と、エディタの変化を React の部品に伝える仕組みです。
+- `__tests__/`：往復テスト（`fixtures/` の Markdown を読み込み、何も編集せずに保存すると元と同じになるか）などのテストです。
+
+### `src/app`
+
+画面の部品です。
+
+- `App.tsx`：全体の配置です。
+- `Sidebar.tsx`：ページのツリーです（TanStack Virtual で、見えている行だけを描きます）。
+- `PageView.tsx`、`PageTitle.tsx`：ページの表示と、その場で書き換えられるタイトルです。
+- `ContextMenu.tsx`：右クリックなどで開く小さなメニューです。
+- `CommandPalette.tsx`、`palette-store.ts`、`palette-search.ts`：コマンドパレットです。`palette-search.ts` は検索の順番を管理し、最後に確定した検索語の結果だけを表示に回します（古い問い合わせの結果が後から届いても捨てます）。
+- `NoticeBar.tsx`：画面上部の通知（「他のアプリで変更されました」など）です。
+- `EmptyState.tsx`：空の状態や例外の状態の表示です。
+
+### `src/store`
+
+- `app.ts`：Zustand のストアです。ページのツリー、最近のページ、開いているページ、通知、サイドバーの開閉などの状態と、保管庫を開く・ページを開く・作る・名前を変える・削除する・外部の変更に対応する、といった操作を持ちます。
+
+### `src/lib`
+
+- `paths.ts`：保管庫の中のパスの計算（相対パス、保管庫の外に出ないかの確認など）です。
+- `keyboard.ts`：ショートカットと、日本語の変換中かどうかの判定（`isComposing`）です。
+- `platform.ts`：ウィンドウを閉じるときの処理など、Tauri とブラウザの違いを吸収します。
+- `motion.ts`、`presence.ts`、`flip-rows.ts`：アニメーションの共通処理です。
+- `cn.ts`：CSS のクラス名をまとめる小さな関数です。
+
+### `core`
+
+- `src/lib.rs`：保管庫を扱う `Vault`（開く、ツリーを返す、読む、書く、作る、名前を変える、削除する、検索、最近のページ、Inbox への追記など）と、エラーの型です。いまは骨組みだけです。
+- `tests/`：上で書いたテストです。`tests/common/mod.rs` はテスト用の保管庫を組み立てる補助です。
+- `benches/large_vault.rs`：速さの測定です。
+
+## 設計の約束
+
+### 打鍵の経路でバックエンドを呼ばない
+
+文字を打ってから画面に出るまでの間に、バックエンドの呼び出しをはさみません。保存は入力とは関係なく、裏で行います（`src/editor/session.ts`）。
+
+### 自動保存
+
+- 最後の入力から 500ms 後に保存します（`SAVE_DELAY_MS`）。
+- ページを切り替えたときと、ウィンドウを閉じるときにも保存します。Tauri ではウィンドウを閉じるのを、書き終えるまで待たせます。ブラウザ（`npm run dev`）では待てないので、書き出しを始めるだけです（`src/lib/platform.ts`）。
+- 保存は `writePage` に、読み込んだときの `version` を添えて行います。ほかのアプリで先に変更されていたら（衝突）、「再読み込み」か「自分の変更を保持」かを通知で尋ねます。
+
+### 原文を残す書き出し
+
+保存するとき、変えていないブロックは、読み込んだときの原文をそのまま書き出します。変えたブロックだけを Milkdown で書き出し直します（`src/editor/markdown.ts`）。
+
+- ファイルの先頭の BOM（文字コードの印）とフロントマター（先頭の `---` で囲んだ設定の部分）は、エディタには出さず、保存のときにそのまま戻します。
+- エディタで扱えない書き方（HTML のブロック、脚注など）は、編集できない部品として原文のまま表示し、原文のまま書き戻します。
+- 何も編集せずに保存すると元のファイルと同じになることを、往復テストで確かめています（`src/editor/__tests__/roundtrip.test.ts`）。
+
+### 日本語の変換中の規則
+
+IME（日本語入力）で変換している最中は、確定前の文字やキーに反応しません。
+
+- 変換中は保存も読み直しもしません。変換が終わってから行います。
+- タイトルの書き換え、メニュー、サイドバーなどは、変換中のキー（確定の Enter や取り消しの Esc など）に反応しません。
+- コマンドパレットは、変換中は検索せず直前の結果を出したままにし、確定した時点で検索します。変換確定の Enter では結果を開きません。
+- 変換中に打った「/」ではスラッシュコマンドを開きません。変換して確定した「／」では開きます。メニューの絞り込みも、確定してから反映します。
+- macOS の WKWebView（Tauri が使う表示部品）では、確定の Enter が `isComposing=false`、`keyCode=229` で届くことがあります。そのため変換中かどうかは両方を見て判定します（`src/lib/keyboard.ts` の `isComposing`）。
+
+## 進み具合
+
+段階1〜5は終わりました。次は段階6です。
+
+| 段階 | 内容 | 状態 |
+| --- | --- | --- |
+| 1 | 往復テスト | 完了 |
+| 2 | バックエンドの接続部、Mock、骨組み | 完了 |
+| 3 | エディタ | 完了 |
+| 4 | サイドバーとページ操作 | 完了 |
+| 5 | コマンドパレット | 完了 |
+| 6 | クイックキャプチャ | これから |
+| 7 | 空の状態と例外の状態 | これから |
