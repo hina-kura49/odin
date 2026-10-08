@@ -184,7 +184,9 @@ describe('ページの操作', () => {
     await open('日記/2025/今日の振り返り.md')
     await useApp.getState().deletePage('日記/2025/今日の振り返り.md')
     expect(notice()?.title).toBe('ゴミ箱に移動しました')
-    expect(useApp.getState().page).toBeNull()
+    // 開いていたページを消したら、最近開いたページを開く(本文を空にしない)
+    expect(useApp.getState().page?.path).not.toBe('日記/2025/今日の振り返り.md')
+    expect(useApp.getState().page).not.toBeNull()
   })
 })
 

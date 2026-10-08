@@ -31,6 +31,10 @@ type AppState = {
   cache: Record<string, PageContent>
   notice: Notice | null
   sidebarCollapsed: boolean
+  /** ツリーでこのページの行を見せる(祖先を開いてスクロールする)。seq は同じページでも合図を出し直すため */
+  reveal: { path: string; seq: number } | null
+  /** ページのタイトルに入力位置を移す。select なら全体を選ぶ(作ったばかりのページ) */
+  titleFocus: { path: string; seq: number; select: boolean } | null
 
   init(): Promise<void>
   openVault(): Promise<void>
@@ -46,6 +50,9 @@ type AppState = {
   createPage(parentPath: string | null, title: string): Promise<PageMeta | null>
   renamePage(path: string, newTitle: string): Promise<PageMeta | null>
   deletePage(path: string): Promise<void>
+  /** 新規ページを作って開き、タイトルを選んだ状態にする。sibling: 開いているページと同じフォルダ / child: 子ページ / folder: 指定のフォルダ */
+  newPage(where: 'sibling' | 'child' | { folder: string | null }): Promise<void>
+  focusTitle(path: string, select?: boolean): void
   showNotice(notice: Omit<Notice, 'id'>): void
   dismissNotice(id?: number): void
   toggleSidebar(): void
@@ -55,6 +62,7 @@ let openSeq = 0
 let loadSeq = 0
 let noticeSeq = 0
 let noticeTimer: ReturnType<typeof setTimeout> | undefined
+let signalSeq = 0
 
 const findNode = (nodes: TreeNode[], path: string): TreeNode | null => {
   for (const n of nodes) {
@@ -74,6 +82,8 @@ export const useApp = create<AppState>()((set, get) => ({
   cache: {},
   notice: null,
   sidebarCollapsed: false,
+  reveal: null,
+  titleFocus: null,
 
   async init() {
     const vault = await backend().currentVault()
@@ -103,7 +113,8 @@ export const useApp = create<AppState>()((set, get) => ({
     void flushActive()
     const seq = ++openSeq
     const cached = get().cache[path]
-    set(cached ? { selectedPath: path, page: { path, ...cached, loadId: ++loadSeq } } : { selectedPath: path })
+    const reveal = { path, seq: ++signalSeq }
+    set(cached ? { selectedPath: path, reveal, page: { path, ...cached, loadId: ++loadSeq } } : { selectedPath: path, reveal })
     try {
       const fresh = await backend().readPage(path)
       set((s) => ({ cache: { ...s.cache, [path]: fresh } }))
@@ -241,7 +252,8 @@ export const useApp = create<AppState>()((set, get) => ({
       get().showNotice({ tone: 'warning', title: '削除できませんでした', body: toBackendError(e).message, actions: [] })
       return
     }
-    if (get().page?.path === path) get().closePage()
+    const wasOpen = get().page?.path === path
+    if (wasOpen) get().closePage()
     set((s) => {
       const cache = { ...s.cache }
       delete cache[path]
@@ -249,6 +261,23 @@ export const useApp = create<AppState>()((set, get) => ({
     })
     await get().refreshTree()
     get().showNotice({ tone: 'info', title: 'ゴミ箱に移動しました', body: '元に戻すときは、Finder のゴミ箱から戻してください。', actions: [] })
+    // 開いていたページを消したら、本文を空にせず、最近開いたページを開く
+    const next = wasOpen ? get().recent.find((p) => p.path !== path) : undefined
+    if (next && !get().page) await get().openPage(next.path)
+  },
+
+  async newPage(where) {
+    const open = get().page?.path ?? null
+    const parent =
+      typeof where === 'object' ? where.folder : where === 'child' ? open : open ? findParentFolder(get().tree, open) : null
+    const meta = await get().createPage(parent, '無題')
+    if (!meta) return
+    await get().openPage(meta.path)
+    get().focusTitle(meta.path, true)
+  },
+
+  focusTitle(path, select = false) {
+    set({ titleFocus: { path, seq: ++signalSeq, select } })
   },
 
   showNotice(notice) {
@@ -279,6 +308,12 @@ export function ancestorsOf(tree: TreeNode[], path: string): TreeNode[] {
 }
 
 export const isPage = (node: TreeNode) => node.kind === 'page'
+
+/** ページの入っているフォルダ(ツリーの親)。ルートなら null。path は加工せず、ツリーの親子関係から求める */
+export function findParentFolder(tree: TreeNode[], path: string): string | null {
+  const trail = ancestorsOf(tree, path)
+  return trail.length >= 2 ? trail[trail.length - 2].path : null
+}
 
 /** ページのタイトル(バックエンドが返したもの)。ツリーにまだなければ null */
 export const titleOf = (tree: TreeNode[], path: string): string | null => findNode(tree, path)?.title ?? null

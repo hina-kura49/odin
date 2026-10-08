@@ -10,7 +10,7 @@ import { configureMarkdown } from './markdown'
 import { EditorOverlays } from './EditorOverlays'
 import { extraKeys } from './keys'
 import { codeHighlight, imageView, listItemView, markdownPaste, setImagePagePath, taskToggle } from './plugins'
-import { setActiveSession } from './registry'
+import { setActiveSession, setEditorStartFocuser } from './registry'
 import { EditorSession } from './session'
 import { slashPlugin } from './slash'
 import { trackedPosPlugin } from './tracked-pos'
@@ -86,6 +86,11 @@ export function MarkdownEditor({ path, loadId, content, version, onReady }: Prop
         if (import.meta.env.DEV) Object.assign(window, { __editorView: e.action((ctx) => ctx.get(editorViewCtx)) })
         sessionRef.current = new EditorSession(e)
         setActiveSession(sessionRef.current)
+        setEditorStartFocuser(() => {
+          const view = e.action((ctx) => ctx.get(editorViewCtx))
+          view.dispatch(view.state.tr.setSelection(Selection.atStart(view.state.doc)).scrollIntoView())
+          view.focus()
+        })
         setEditor(e)
       })
     return () => {
@@ -93,6 +98,7 @@ export function MarkdownEditor({ path, loadId, content, version, onReady }: Prop
       const session = sessionRef.current
       sessionRef.current = null
       setActiveSession(null)
+      setEditorStartFocuser(null)
       // 未保存の変更を書き出してから片づける
       void (session?.flush() ?? Promise.resolve()).finally(() => void created?.destroy())
     }

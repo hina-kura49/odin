@@ -21,7 +21,11 @@ export function App() {
   // 他のアプリでの変更: ツリーを取り直し、開いているページの version を比べる
   useEffect(() => backend().onExternalChange(() => void handleExternalChange()), [handleExternalChange])
 
+  const newPage = useApp((s) => s.newPage)
   useShortcut({ key: '\\', mod: true }, toggleSidebar)
+  // 新規ページ(開いているページと同じフォルダ) / 子ページ
+  useShortcut({ key: 'n', mod: true }, () => void newPage('sibling'), status === 'ready')
+  useShortcut({ key: 'n', mod: true, shift: true }, () => void newPage('child'), status === 'ready')
 
   if (status === 'loading') return null
   if (status === 'no-vault') {

@@ -20,3 +20,15 @@ export const activeSession = () => active
 
 /** 未保存の変更を保存し終える(エディタがなければ何もしない) */
 export const flushActive = () => active?.flush() ?? Promise.resolve()
+
+// ---- タイトルと本文の行き来 ----
+
+let focusEditorStart: (() => void) | null = null
+
+/** エディタが「本文の先頭に入力位置を置く」処理を登録する */
+export const setEditorStartFocuser = (fn: (() => void) | null) => {
+  focusEditorStart = fn
+}
+
+/** 本文の先頭に入力位置を置く(タイトルで Enter / ↓ を押したとき) */
+export const focusEditor = () => focusEditorStart?.()

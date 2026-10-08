@@ -5,6 +5,7 @@ import { duration, easing, exitRatio, slideFrom } from '@/lib/motion'
 import { ancestorsOf, useApp, type OpenPage } from '@/store/app'
 import { EmptyState } from './EmptyState'
 import { NoticeBar } from './NoticeBar'
+import { PageTitle } from './PageTitle'
 
 type ReadablePage = Extract<OpenPage, { content: string }>
 
@@ -57,7 +58,7 @@ export function PageView() {
             className="page"
             style={{ visibility: ready ? 'visible' : 'hidden', display: page && !page.unreadable ? undefined : 'none' }}
           >
-            <h1 className="page-title">{title}</h1>
+            <PageTitle path={editorPage.path} title={title} />
             <MarkdownEditor
               path={editorPage.path}
               loadId={editorPage.loadId}
