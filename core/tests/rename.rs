@@ -799,7 +799,7 @@ fn rename_page_escapes_markdown_characters_of_new_title_in_link_text() {
 
     assert_eq!(
         text(&v, "other.md"),
-        "[x\\*y\\_z\\`w\\<v\\&u\\[t\\]s](x*y_z`w%3Cv&u[t]s.md)"
+        "[x\\*y\\_z\\`w\\<v\\&u\\[t\\]s](x%2Ay_z%60w%3Cv%26u%5Bt%5Ds.md)"
     );
 }
 
@@ -814,7 +814,7 @@ fn rename_page_does_not_escape_other_characters_of_new_title() {
 
     assert_eq!(
         text(&v, "other.md"),
-        "[#1 (案)!ＡＢ](%231%20%28案%29!ＡＢ.md)"
+        "[#1 (案)!ＡＢ](%231%20%28案%29%21ＡＢ.md)"
     );
 }
 
@@ -845,9 +845,8 @@ fn rename_page_escapes_tilde_and_pipe_of_new_title_in_link_text() {
 
     rename(&v, "a.md", "a~b|c");
 
-    // 行き先の「|」の書き方は仕様確認待ちなので、表示文字列の部分だけを比べる。
     let other = text(&v, "other.md");
-    assert!(other.starts_with("[a\\~b\\|c]("), "{other:?}");
+    assert_eq!(other, "[a\\~b\\|c](a%7Eb%7Cc.md)");
     assert_eq!(
         links_in(&other),
         [("a~b|c".to_string(), "a~b|c.md".to_string())]
@@ -864,7 +863,7 @@ fn new_title_with_double_tilde_does_not_become_strikethrough() {
     rename(&v, "a.md", "a~~b~~c");
 
     let other = text(&v, "other.md");
-    assert_eq!(other, "[a\\~\\~b\\~\\~c](a~~b~~c.md)");
+    assert_eq!(other, "[a\\~\\~b\\~\\~c](a%7E%7Eb%7E%7Ec.md)");
     assert_eq!(
         links_in(&other),
         [("a~~b~~c".to_string(), "a~~b~~c.md".to_string())]
@@ -896,6 +895,10 @@ fn renaming_to_title_with_pipe_keeps_table_columns() {
     rename(&v, "a.md", "p|q");
 
     let other = text(&v, "other.md");
+    assert_eq!(
+        other,
+        "| 列1 | 列2 |\n|---|---|\n| [p\\|q](p%7Cq.md) | x |\n"
+    );
     assert_eq!(table_shape(&other), [2, 2], "{other:?}");
     assert_eq!(
         links_in(&other),
@@ -931,6 +934,94 @@ fn rename_page_rewrites_link_in_task_list_item() {
 }
 
 #[test]
+fn rename_page_percent_encodes_every_ascii_symbol_except_hyphen_underscore_and_dot() {
+    let title = r##"a !"#$%&'()*+,-.;<=>?@[]^_`{|}~z"##;
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[a](a.md)")
+        .open();
+
+    rename(&v, "a.md", title);
+
+    assert_eq!(
+        text(&v, "other.md"),
+        r##"[a !"#$%\&'()\*+,-.;\<=>?@\[\]^\_\`{\|}\~z](a%20%21%22%23%24%25%26%27%28%29%2A%2B%2C-.%3B%3C%3D%3E%3F%40%5B%5D%5E_%60%7B%7C%7D%7Ez.md)"##
+    );
+    assert_eq!(
+        links_in(&text(&v, "other.md")),
+        [(title.to_string(), format!("{title}.md"))]
+    );
+}
+
+#[test]
+fn rename_page_writes_backtick_title_safely_before_later_code_span() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[a](a.md) と `コード` の段落\n")
+        .open();
+
+    rename(&v, "a.md", "x`y");
+
+    let other = text(&v, "other.md");
+    assert_eq!(other, "[x\\`y](x%60y.md) と `コード` の段落\n");
+    assert_eq!(
+        links_in(&other),
+        [("x`y".to_string(), "x`y.md".to_string())]
+    );
+}
+
+#[test]
+fn rename_page_never_writes_colon_because_title_processing_replaces_it() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[x](a.md)")
+        .open();
+
+    let meta = rename(&v, "a.md", "10:00");
+
+    assert_eq!(meta.title, "10-00");
+    assert_eq!(text(&v, "other.md"), "[x](10-00.md)");
+}
+
+#[test]
+fn rename_page_keeps_original_spelling_of_colon_in_unchanged_first_segment() {
+    let v = VaultBuilder::new()
+        .file("10:00.md", "")
+        .file("10:00/a.md", "")
+        .file("other.md", "[x](10%3A00/a.md) [y](./10:00/a.md)")
+        .open();
+
+    rename(&v, "10:00/a.md", "b");
+
+    assert_eq!(text(&v, "other.md"), "[x](10%3A00/b.md) [y](./10:00/b.md)");
+}
+
+#[test]
+fn rename_page_replaces_first_segment_with_colon_when_it_changes() {
+    let v = VaultBuilder::new()
+        .file("10:00.md", "")
+        .file("10:00/a.md", "")
+        .file("other.md", "[x](10%3A00/a.md) [y](10:00.md)")
+        .open();
+
+    rename(&v, "10:00.md", "b c");
+
+    assert_eq!(text(&v, "other.md"), "[x](b%20c/a.md) [y](b%20c.md)");
+}
+
+#[test]
+fn rename_page_resolves_lowercase_percent_encoding() {
+    let v = VaultBuilder::new()
+        .file("定例\u{3000}会議.md", "")
+        .file("other.md", "[x](定例%e3%80%80会議.md)")
+        .open();
+
+    rename(&v, "定例\u{3000}会議.md", "b");
+
+    assert_eq!(text(&v, "other.md"), "[x](b.md)");
+}
+
+#[test]
 fn escaped_new_title_reads_back_as_the_new_title() {
     let title = "[重要] a*b_c`d<e&f & g~h|i";
     let v = VaultBuilder::new()
@@ -947,7 +1038,6 @@ fn escaped_new_title_reads_back_as_the_new_title() {
 }
 
 #[test]
-#[ignore = "仕様確認待ち(質問69): 行き先の「&名前;」は実体参照として読み替えられるため、回答37のままでは別の名前を指す"]
 fn new_title_with_entity_like_text_reads_back_as_the_new_title() {
     let title = "a &amp; b &lt;c&gt;";
     let v = VaultBuilder::new()
@@ -956,6 +1046,11 @@ fn new_title_with_entity_like_text_reads_back_as_the_new_title() {
         .open();
 
     rename(&v, "a.md", title);
+
+    assert_eq!(
+        text(&v, "other.md"),
+        "[a \\&amp; b \\&lt;c\\&gt;](a%20%26amp%3B%20b%20%26lt%3Bc%26gt%3B.md)"
+    );
 
     assert_eq!(
         links_in(&text(&v, "other.md")),
