@@ -702,6 +702,91 @@ fn snippet_of_title_only_match_with_empty_body_is_empty() {
 }
 
 #[test]
+fn snippet_counts_characters_after_collapsing_whitespace() {
+    // 「あ」と改行3つの繰り返しは、まとめると「あ 」の繰り返しになる。その形で30文字を数える。
+    let v = VaultBuilder::new()
+        .file("a.md", format!("{}目印", "あ\n\n\n".repeat(20)))
+        .open();
+
+    assert_eq!(
+        snippet(&v, "目印"),
+        sn(&format!("…{}", "あ ".repeat(15)), "目印", "")
+    );
+}
+
+#[test]
+fn snippet_turns_single_fullwidth_space_and_tab_into_one_space() {
+    let v = VaultBuilder::new()
+        .file("a.md", "前\u{3000}目印\t後")
+        .open();
+    assert_eq!(snippet(&v, "目印"), sn("前 ", "目印", " 後"));
+}
+
+#[test]
+fn snippet_trims_whitespace_at_start_of_before_and_end_of_after() {
+    let v = VaultBuilder::new()
+        .file("a.md", "\n\u{3000} 目印 \t\n")
+        .open();
+    assert_eq!(snippet(&v, "目印"), sn("", "目印", ""));
+}
+
+#[test]
+fn snippet_of_title_only_match_trims_whitespace_around_body() {
+    let v = VaultBuilder::new()
+        .file("会議.md", "\n \u{3000}本文の\n\n先頭 \n")
+        .open();
+    assert_eq!(snippet(&v, "会議"), sn("", "", "本文の 先頭"));
+}
+
+#[test]
+fn snippet_excludes_bom() {
+    let v = VaultBuilder::new()
+        .file("a.md", "\u{FEFF}目印のあと")
+        .open();
+    assert_eq!(snippet(&v, "目印"), sn("", "目印", "のあと"));
+}
+
+#[test]
+fn snippet_of_title_only_match_excludes_bom() {
+    let v = VaultBuilder::new().file("会議.md", "\u{FEFF}本文").open();
+    assert_eq!(snippet(&v, "会議"), sn("", "", "本文"));
+}
+
+#[test]
+fn search_ranks_page_as_title_match_only_when_title_has_every_word() {
+    let v = VaultBuilder::new()
+        .file("会議と議事録.md", "")
+        .file("会議.md", "議事録の内容")
+        .file("x.md", "会議の議事録")
+        .mtime("会議と議事録.md", t(1_500_000_000))
+        .mtime("会議.md", t(1_700_000_000))
+        .mtime("x.md", t(1_600_000_000))
+        .open();
+
+    assert_eq!(
+        hit_paths(&v, "会議 議事録"),
+        ["会議と議事録.md", "会議.md", "x.md"]
+    );
+}
+
+#[test]
+fn snippet_uses_body_match_of_a_word_even_if_another_word_is_only_in_title() {
+    let v = VaultBuilder::new()
+        .file("会議.md", "前置き、議事録の内容")
+        .open();
+    assert_eq!(
+        snippet(&v, "会議 議事録"),
+        sn("前置き、", "議事録", "の内容")
+    );
+}
+
+#[test]
+fn snippet_has_title_only_form_when_every_word_is_only_in_title() {
+    let v = VaultBuilder::new().file("会議と議事録.md", "本文").open();
+    assert_eq!(snippet(&v, "会議 議事録"), sn("", "", "本文"));
+}
+
+#[test]
 fn snippet_shows_match_near_the_end_of_a_large_file() {
     let body = format!("{}最後の目印です", "あいうえお".repeat(400_000));
     let v = VaultBuilder::new().file("big.md", body).open();
