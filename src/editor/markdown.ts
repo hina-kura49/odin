@@ -3,10 +3,10 @@ import { Editor, parserCtx, remarkCtx, remarkStringifyOptionsCtx, schemaCtx, ser
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { commonmark } from '@milkdown/kit/preset/commonmark'
 import { gfm, remarkGFMPlugin } from '@milkdown/kit/preset/gfm'
-import { $remark } from '@milkdown/kit/utils'
-import type { Image, Root } from 'mdast'
+import { $nodeSchema, $remark } from '@milkdown/kit/utils'
+import type { Image, Nodes, Parents, Root } from 'mdast'
 import remarkCjkFriendly from 'remark-cjk-friendly'
-import { visit } from 'unist-util-visit'
+import { SKIP, visit } from 'unist-util-visit'
 
 /** Milkdown 7.22 の image ノードは title に null を受け付けず、タイトルなし画像が壊れる。読み込み時に '' へ直す。 */
 const imageTitleFix = $remark('imageTitleFix', () => () => (tree: Root) => {
@@ -18,6 +18,70 @@ const imageTitleFix = $remark('imageTitleFix', () => () => (tree: Root) => {
 /** 「**「強調」**です」のように括弧と隣り合う強調を、CommonMark の規則でも強調として読む。 */
 const cjkFriendly = $remark('cjkFriendly', () => remarkCjkFriendly)
 
+// ---- エディタが表現できない記法 ----
+// ブロック単位(HTML のブロック、脚注の本文、数式など)は、編集できないコード風のブロックとして原文のまま表示する。
+// 行内(脚注の参照 [^1]、行内 HTML など)は、Milkdown の html ノード(編集できない行内の部品)として原文のまま表示する。
+// どちらも保存時は原文をそのまま書き戻す。
+
+/** ブロック単位で原文のまま扱う mdast の種類 */
+const RAW_BLOCK_TYPES = new Set(['html', 'footnoteDefinition', 'math', 'toml', 'yaml'])
+/** 行内で原文のまま扱う mdast の種類 */
+const RAW_INLINE_TYPES = new Set(['footnoteReference', 'inlineMath'])
+/** 子にブロックを持つ mdast の種類(ここに直接入っている html はブロック) */
+const FLOW_PARENTS = new Set(['root', 'blockquote', 'listItem', 'footnoteDefinition'])
+
+type RawBlock = { type: 'rawBlock'; value: string }
+
+const rawSyntax = $remark('rawSyntax', () => () => (tree: Root, file) => {
+  const source = String(file.value ?? '')
+  const original = (node: Nodes) => {
+    const start = node.position?.start.offset
+    const end = node.position?.end.offset
+    if (start !== undefined && end !== undefined && source) return source.slice(start, end)
+    return 'value' in node && typeof node.value === 'string' ? node.value : ''
+  }
+  visit(tree, (node: Nodes, index, parent: Parents | undefined) => {
+    if (!parent || index === undefined) return
+    const flow = FLOW_PARENTS.has(parent.type)
+    // Milkdown が先に段落で包んだブロックの HTML(段落の中に html が1つだけ)もブロックとして扱う
+    const wrappedHtml =
+      flow && node.type === 'paragraph' && node.children.length === 1 && node.children[0].type === 'html'
+    if ((flow && RAW_BLOCK_TYPES.has(node.type)) || wrappedHtml) {
+      const raw: RawBlock = { type: 'rawBlock', value: original(node) }
+      ;(parent.children as unknown[])[index] = raw
+      return SKIP
+    }
+    if (!flow && RAW_INLINE_TYPES.has(node.type)) {
+      ;(parent.children as unknown[])[index] = { type: 'html', value: original(node) }
+      return SKIP
+    }
+  })
+})
+
+/** 編集できない、原文のままのブロック */
+export const rawBlockSchema = $nodeSchema('raw_block', () => ({
+  group: 'block',
+  atom: true,
+  selectable: true,
+  draggable: true,
+  marks: '',
+  attrs: { value: { default: '', validate: 'string' } },
+  parseDOM: [{ tag: 'pre[data-raw-block]', getAttrs: (dom) => ({ value: dom.textContent ?? '' }) }],
+  toDOM: (node) => ['pre', { 'data-raw-block': '', class: 'raw-block', contenteditable: 'false' }, String(node.attrs.value)],
+  parseMarkdown: {
+    match: (node) => node.type === 'rawBlock',
+    runner: (state, node, type) => {
+      state.addNode(type, { value: String(node.value ?? '') })
+    },
+  },
+  toMarkdown: {
+    match: (node) => node.type.name === 'raw_block',
+    runner: (state, node) => {
+      state.addNode('html', undefined, String(node.attrs.value))
+    },
+  },
+}))
+
 /** エディタと往復テストで共有する Milkdown の構成。 */
 export function configureMarkdown(editor: Editor): Editor {
   return editor
@@ -25,8 +89,10 @@ export function configureMarkdown(editor: Editor): Editor {
       ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-' as const, rule: '-' as const }))
       ctx.set(remarkGFMPlugin.options.key, { tablePipeAlign: false })
     })
+    .use(rawSyntax)
     .use(commonmark)
     .use(gfm)
+    .use(rawBlockSchema)
     .use(imageTitleFix)
     .use(cjkFriendly)
 }
@@ -46,10 +112,15 @@ export type LoadedMarkdown = { doc: PMNode; snapshot: SourceSnapshot }
 
 const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/
 
+/** フロントマターと本文に分ける。フロントマターはエディタに出さない */
+export function splitFrontmatter(markdown: string): { frontmatter: string; body: string } {
+  const frontmatter = FRONTMATTER.exec(markdown)?.[0] ?? ''
+  return { frontmatter, body: markdown.slice(frontmatter.length) }
+}
+
 /** Markdown を読み込み、エディタに渡す文書と、保存用の原文の控えを作る。 */
 export function loadMarkdown(ctx: Ctx, markdown: string): LoadedMarkdown {
-  const frontmatter = FRONTMATTER.exec(markdown)?.[0] ?? ''
-  const body = markdown.slice(frontmatter.length)
+  const { frontmatter, body } = splitFrontmatter(markdown)
   const remark = ctx.get(remarkCtx)
   const parse = ctx.get(parserCtx)
   const doc = parse(body)

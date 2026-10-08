@@ -1,111 +1,484 @@
+@import 'tailwindcss';
+
+/* デザイントークン(ライト)。ダークはデザイナーから値が届いたら :root[data-theme='dark'] に足す */
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --bg: #fafafa;
+  --panel: #ffffff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #3b82f6;
+  --focus: #2563eb;
+  /* 外部変更の通知(デザイン 7)。ライトのトークン表に無いため、ダーク版デザインの Warning(Light) の値 */
+  --warning: #f59e0b;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 28px;
+
+  /* 影はデザイン画像の解像度では一部読み取れず、近い値にしている */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 10px 24px rgba(0, 0, 0, 0.12);
+
+  --motion-fast: 150ms;
+  --motion-normal: 200ms;
+
+  /* アニメーションの長さ(目的は「物の位置の変化を目で追えること」。演出のための動きは入れない) */
+  --duration-hover: 90ms; /* ホバーと選択中の背景色 */
+  --duration-check: 120ms; /* チェックボックス */
+  --duration-tree: var(--motion-fast); /* ツリーの開閉 */
+  --duration-sidebar: var(--motion-normal); /* サイドバーの開閉 */
+  --duration-menu: 110ms; /* スラッシュメニュー・書式メニュー */
+  --duration-palette: 100ms; /* コマンドパレット */
+  --duration-drag: var(--motion-normal); /* ブロックの並べ替え */
+  --exit-ratio: 0.6; /* 出る動きは入る動きのこの割合の長さ */
+
+  /* イージング。入るときは減速、出るときは短く加速して消える、位置の移動はなめらかに止まる */
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-move: cubic-bezier(0.2, 0, 0, 1);
+  /* ばねの動き(わずかに行き過ぎて戻る) */
+  --ease-spring: linear(0, 0.21 6%, 0.69 18%, 0.96 29%, 1.06 38%, 1.07 45%, 1.03 56%, 1 70%, 0.995 82%, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+/* Tailwind のクラスからトークンを使えるようにする(bg-panel, text-muted, rounded-md など) */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-focus: var(--focus);
+  --color-warning: var(--warning);
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+
+  --text-sm: var(--text-sm);
+  --text-base: var(--text-base);
+  --text-lg: var(--text-lg);
+  --text-xl: var(--text-xl);
+  --text-2xl: var(--text-2xl);
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
+  /* Webフォントは使わない(読み込み完了時に文字幅が変わって本文がずれるのを避ける) */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
+html,
+body,
 #root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
+  height: 100%;
 }
 
 body {
   margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  -webkit-font-smoothing: antialiased;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
+/* 「視差効果を減らす」が有効なときは、位置の動きをやめて短いフェードだけにする(JS 側は lib/motion.ts) */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-tree: 80ms;
+    --duration-sidebar: 80ms;
+    --duration-drag: 0ms;
+  }
+  .chevron,
+  .odin-editor li[data-item-type='task']::after {
+    transition-property: opacity !important;
   }
 }
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
+
+/* サイドバー: transform で出し入れする。閉じる(出る)ときは短く */
+:root {
+  --sidebar-width: 240px;
+}
+.sidebar {
+  transition: transform var(--duration-sidebar) var(--ease-enter);
+}
+.sidebar[data-collapsed='true'] {
+  transform: translateX(-100%);
+  transition-duration: calc(var(--duration-sidebar) * var(--exit-ratio));
+  transition-timing-function: var(--ease-exit);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition-property: opacity;
+  }
+  .sidebar[data-collapsed='true'] {
+    transform: none;
+    opacity: 0;
   }
 }
-p {
+
+/* ホバーと選択中の背景色の変化 */
+.hover-fade {
+  transition:
+    background-color var(--duration-hover) var(--ease-move),
+    color var(--duration-hover) var(--ease-move);
+}
+
+/* ツリーの矢印は、1つのアイコンを回転させる(途中で逆に操作しても今の角度から戻る) */
+.chevron {
+  transition: transform var(--duration-tree) var(--ease-move);
+}
+.chevron[data-open='true'] {
+  transform: rotate(90deg);
+}
+
+/* ---------------------------------------------------------------
+ * 本文の組み方。出発点の値で、すべて変数にして後から変えられるようにしている。
+ * デザインのトークンにある値はトークンを使う(本文 16px = --text-lg、見出し3 20px = --text-xl、間隔 8px = --space-2)
+ * --------------------------------------------------------------- */
+:root {
+  --body-size: var(--text-lg);
+  --body-line: 1.75;
+  --measure: 720px; /* 文章(段落・見出し・リスト・引用)の幅の上限 */
+  --wide-measure: 900px; /* 表・コード・画像が、収まらないときに限り広がれる上限 */
+  --block-gap: calc(var(--body-size) * 0.5);
+
+  --h1-size: calc(var(--body-size) * 1.875);
+  --h2-size: calc(var(--body-size) * 1.5);
+  --h3-size: var(--text-xl); /* = 本文の 1.25 倍 */
+  --heading-line: 1.3;
+  --heading-weight: 600;
+  --heading-space-above: calc(var(--body-size) * 1.5);
+  --heading-space-below: var(--block-gap);
+
+  --strong-weight: 600;
+  --code-size: 0.875em;
+  --code-line: 1.6;
+  --code-bg: color-mix(in srgb, var(--border) 35%, var(--panel));
+}
+
+/* Webフォントは使わない。太字・斜体を機械的に作らない(ヒラギノの W6 で表示させる) */
+html {
+  font-synthesis: none;
+  font-feature-settings: normal; /* palt を当てない */
+}
+
+.page {
+  max-width: calc(var(--wide-measure) + 2 * var(--space-6));
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-6) 30vh;
+}
+
+/* 文章は --measure まで。中央に置き、ウィンドウが狭いときは左右の余白(.page の padding)を保って縮む */
+.page-title,
+.odin-editor .ProseMirror > * {
+  max-width: var(--measure);
+  margin-inline: auto;
+}
+
+/* 表・コード・画像は、収まるときは文章の幅に揃え、収まらないときだけ --wide-measure まで左右均等に広がる */
+.odin-editor .ProseMirror > :is(pre, table, .tableWrapper) {
+  width: max-content;
+  min-width: min(100%, var(--measure));
+  max-width: min(100%, var(--wide-measure));
+}
+.odin-editor .tableWrapper > table {
+  width: 100%;
+}
+/* 画像だけの段落は広い幅を使えるようにし、画像の枠の幅は plugins.ts が決める */
+.odin-editor .ProseMirror > p:has(> .image-block) {
+  max-width: min(100%, var(--wide-measure));
+}
+
+.page-title {
+  margin-top: var(--space-5);
+  margin-bottom: var(--space-5);
+  font-size: var(--text-2xl);
+  font-weight: var(--heading-weight);
+  line-height: var(--heading-line);
+  line-break: strict;
+  overflow-wrap: anywhere;
+}
+
+.odin-editor .ProseMirror {
+  outline: none;
+  font-size: var(--body-size);
+  line-height: var(--body-line);
+  line-break: strict;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.odin-editor .ProseMirror > * + *,
+.odin-editor .ProseMirror li > * + *,
+.odin-editor .ProseMirror blockquote > * + * {
+  margin-top: var(--block-gap);
+}
+.odin-editor .ProseMirror > * {
+  margin-bottom: 0;
+}
+.odin-editor p {
   margin: 0;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+/* 見出し: 上の余白を下より広くして、次の本文に属して見えるようにする */
+.odin-editor h1,
+.odin-editor h2,
+.odin-editor h3,
+.odin-editor h4,
+.odin-editor h5,
+.odin-editor h6 {
+  font-weight: var(--heading-weight);
+  line-height: var(--heading-line);
+}
+.odin-editor .ProseMirror > :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: var(--heading-space-above);
+}
+.odin-editor .ProseMirror > :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
+}
+.odin-editor .ProseMirror > :is(h1, h2, h3, h4, h5, h6) + * {
+  margin-top: var(--heading-space-below);
+}
+.odin-editor h1 {
+  font-size: var(--h1-size);
+}
+.odin-editor h2 {
+  font-size: var(--h2-size);
+}
+.odin-editor h3 {
+  font-size: var(--h3-size);
+}
+.odin-editor h4,
+.odin-editor h5,
+.odin-editor h6 {
+  font-size: var(--body-size);
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
+.odin-editor strong {
+  font-weight: var(--strong-weight);
+}
+.odin-editor a {
+  color: var(--focus);
+  text-decoration: none;
+}
+.odin-editor a:hover {
+  text-decoration: underline;
+}
+
+/* リスト */
+.odin-editor ul,
+.odin-editor ol {
+  margin: 0;
+  padding-left: 1.5em;
+}
+.odin-editor ul {
+  list-style: disc;
+}
+.odin-editor ol {
+  list-style: decimal;
+}
+.odin-editor li::marker {
+  color: var(--muted);
+}
+
+/* チェックリスト。チェックボックスは CSS で描き、左端のクリックで切り替える(plugins.ts) */
+.odin-editor li[data-item-type='task'] {
+  list-style: none;
+  position: relative;
+  padding-left: 1.75em;
+  margin-left: -1.5em;
+}
+.odin-editor li[data-item-type='task']::before,
+.odin-editor li[data-item-type='task']::after {
+  content: '';
+  position: absolute;
+  left: 0.15em;
+  top: calc((var(--body-line) * 1em - 1.05em) / 2);
+  width: 1.05em;
+  height: 1.05em;
+  box-sizing: border-box;
+  border: 1.5px solid var(--muted);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.odin-editor li[data-item-type='task']::before {
+  transition:
+    background-color var(--duration-check) var(--ease-move),
+    border-color var(--duration-check) var(--ease-move);
+}
+.odin-editor li[data-item-type='task'][data-checked='true']::before {
+  border-color: var(--accent);
+  background-color: var(--accent);
+}
+/* チェックの印。チェック時は拡大しながら現れ、外すときは短く消える */
+.odin-editor li[data-item-type='task']::after {
+  border: 0;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 80% no-repeat;
+  opacity: 0;
+  transform: scale(0.6);
+  pointer-events: none;
+  transition:
+    opacity calc(var(--duration-check) * var(--exit-ratio)) var(--ease-exit),
+    transform calc(var(--duration-check) * var(--exit-ratio)) var(--ease-exit);
+}
+.odin-editor li[data-item-type='task'][data-checked='true']::after {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--duration-check) var(--ease-enter),
+    transform var(--duration-check) var(--ease-enter);
+}
+
+/* 引用。和文の斜体は機械的な変形になるので使わない */
+.odin-editor blockquote {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-left: 3px solid var(--border);
+  background: color-mix(in srgb, var(--border) 20%, var(--panel));
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--muted);
+}
+
+/* コード */
+.odin-editor code,
+.odin-editor pre {
+  font-family: var(--font-mono);
+}
+.odin-editor :not(pre) > code {
+  font-size: var(--code-size);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
   background: var(--code-bg);
+}
+.odin-editor pre {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--code-bg);
+  font-size: var(--code-size);
+  line-height: var(--code-line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.odin-editor pre code {
+  font-size: inherit;
+}
+/* 色付けは文字色だけ(太さ・字形を変えないので、行の高さや幅が変わらない) */
+.odin-editor .hljs-keyword,
+.odin-editor .hljs-built_in,
+.odin-editor .hljs-type,
+.odin-editor .hljs-literal {
+  color: var(--focus);
+}
+.odin-editor .hljs-string,
+.odin-editor .hljs-regexp {
+  color: #16a34a;
+}
+.odin-editor .hljs-comment {
+  color: var(--muted);
+}
+.odin-editor .hljs-number,
+.odin-editor .hljs-title {
+  color: #9333ea;
+}
+
+/* 表 */
+.odin-editor table {
+  border-collapse: collapse;
+  font-size: calc(var(--body-size) * 0.875);
+  line-height: 1.6;
+}
+.odin-editor th,
+.odin-editor td {
+  border: 1px solid var(--border);
+  padding: var(--space-1) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+}
+.odin-editor th {
+  font-weight: var(--strong-weight);
+  background: color-mix(in srgb, var(--border) 30%, var(--panel));
+}
+.odin-editor td p,
+.odin-editor th p {
+  margin: 0;
+}
+
+/* 区切り線 */
+.odin-editor .ProseMirror > hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin-block: var(--space-5);
+}
+
+/* 画像: 読み込み前から枠を確保する(plugins.ts) */
+.odin-editor .image-block {
+  display: block;
+  /* --image-width は覚えている実際の幅。初めての画像は文章の幅 */
+  width: clamp(min(100%, var(--measure)), var(--image-width, var(--measure)), 100%);
+  margin-inline: auto;
+}
+.odin-editor .image-frame {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--code-bg);
+}
+.odin-editor .image-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.odin-editor .image-caption {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* エディタが表現できない記法: 編集できないコード風のブロック / 行内の部品として原文のまま見せる */
+.odin-editor .raw-block,
+.odin-editor span[data-type='html'] {
+  font-family: var(--font-mono);
+  color: var(--muted);
+  background: var(--code-bg);
+  border: 1px dashed var(--border);
+}
+.odin-editor .raw-block {
+  cursor: default;
+}
+.odin-editor span[data-type='html'] {
+  font-size: var(--code-size);
+  padding: 0 0.3em;
+  border-radius: 4px;
+}
+.odin-editor .ProseMirror-selectednode {
+  outline: 2px solid var(--focus);
 }

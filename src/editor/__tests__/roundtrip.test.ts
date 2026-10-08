@@ -24,6 +24,7 @@ const plainSerializerDiffers = new Set([
   '07-japanese-edge.md', // 改行の `  ` → `\\`、URL が `<...>` に、`1)` → `1.`
   '08-frontmatter.md', // フロントマターが区切り線と見出しとして読まれ、壊れる
   '09-reference-links.md', // 参照形式のリンクが展開され、定義が消える
+  '11-unsupported.md', // 空行で途切れた HTML のブロックの後半に、空行が足される
 ])
 
 describe('Milkdown の書き出しだけを使った場合(参考)', () => {
@@ -41,6 +42,37 @@ describe('フロントマター', () => {
     expect(types).toEqual(['heading', 'paragraph'])
     const { preserved } = await roundTrip(original, (doc, { parse }) => withChildren(doc, [...children(doc), ...parse('追記。')]))
     expect(preserved).toBe(`${original}\n追記。\n`)
+  })
+})
+
+describe('エディタが表現できない記法', () => {
+  it('HTML のブロックと脚注の本文は編集できないブロック、脚注の参照と行内 HTML は行内の部品になる', async () => {
+    const src = read('11-unsupported.md')
+    const found: { type: string; value: string }[] = []
+    await roundTrip(src, (doc) => {
+      doc.descendants((n) => {
+        if (n.type.name === 'raw_block' || n.type.name === 'html') found.push({ type: n.type.name, value: String(n.attrs.value) })
+      })
+      return doc
+    })
+    expect(found).toContainEqual({ type: 'raw_block', value: '<details>\n<summary>折りたたみ</summary>' })
+    expect(found).toContainEqual({ type: 'raw_block', value: '<div align="center">中央</div>' })
+    expect(found).toContainEqual({ type: 'raw_block', value: '[^1]: 脚注の本文。\n    2行目も続く。' })
+    expect(found).toContainEqual({ type: 'html', value: '[^1]' })
+    expect(found).toContainEqual({ type: 'html', value: '<kbd>' })
+  })
+
+  it('ほかの段落を編集しても、原文のまま書き戻される', async () => {
+    const src = read('11-unsupported.md')
+    const { preserved } = await roundTrip(src, (doc, { parse }) => withChildren(doc, [...children(doc), ...parse('追記。')]))
+    expect(preserved).toBe(`${src}\n追記。\n`)
+  })
+
+  it('原文のブロックを含む段落を書き出し直しても、記法は元のまま', async () => {
+    const { preserved } = await roundTrip('本文[^1]と<kbd>K</kbd>。\n\n[^1]: 脚注。\n', (doc, { parse }) =>
+      withChildren(doc, [...parse('先頭に追加。'), ...children(doc)]),
+    )
+    expect(preserved).toBe('先頭に追加。\n\n本文[^1]と<kbd>K</kbd>。\n\n[^1]: 脚注。\n')
   })
 })
 
