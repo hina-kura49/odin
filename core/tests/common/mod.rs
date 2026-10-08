@@ -73,6 +73,12 @@ impl VaultBuilder {
         self
     }
 
+    /// 開く前に、ファイルの mtime を設定する。
+    pub fn mtime(self, rel: &str, t: SystemTime) -> Self {
+        set_mtime(&self.root().join(rel), t);
+        self
+    }
+
     pub fn dir(self, rel: &str) -> Self {
         fs::create_dir_all(self.root().join(rel)).unwrap();
         self
@@ -112,7 +118,7 @@ impl VaultBuilder {
         TestVault {
             tmp: self.tmp,
             index: self.index,
-            vault,
+            vault: Some(vault),
         }
     }
 }
@@ -120,17 +126,60 @@ impl VaultBuilder {
 pub struct TestVault {
     tmp: TempDir,
     index: TempDir,
-    pub vault: Vault,
+    /// 開き直す(`reopen`)ときに、いったん閉じてから開けるよう Option にしている。
+    vault: Option<Vault>,
 }
 
 impl Deref for TestVault {
     type Target = Vault;
     fn deref(&self) -> &Vault {
-        &self.vault
+        self.vault.as_ref().unwrap()
     }
 }
 
 impl TestVault {
+    pub fn index_dir(&self) -> PathBuf {
+        self.index.path().to_path_buf()
+    }
+
+    /// いったん閉じてから、同じ vault と index_dir で開き直す(アプリの再起動にあたる)。
+    pub fn reopen(&mut self) {
+        drop(self.vault.take());
+        let trash = DirTrash {
+            dir: self.tmp.path().join("trash"),
+            // 番号のフォルダが重ならないよう、これまでに移した数から数え始める。
+            calls: Arc::new(AtomicUsize::new(
+                fs::read_dir(self.tmp.path().join("trash")).unwrap().count(),
+            )),
+            fails_on: None,
+        };
+        let vault =
+            Vault::open_with_trash(&self.root(), &self.index_dir(), Box::new(trash)).unwrap();
+        self.vault = Some(vault);
+    }
+
+    /// 閉じた状態で索引用のフォルダの中身をすべて消し、開き直す。
+    pub fn delete_index_and_reopen(&mut self) {
+        let index_dir = self.index_dir();
+        self.delete_index_and_reopen_with(|| {
+            for e in fs::read_dir(&index_dir).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    fs::remove_dir_all(p).unwrap()
+                } else {
+                    fs::remove_file(p).unwrap()
+                }
+            }
+        });
+    }
+
+    /// 閉じた状態で `delete` を実行してから、開き直す。
+    pub fn delete_index_and_reopen_with(&mut self, delete: impl FnOnce()) {
+        drop(self.vault.take());
+        delete();
+        self.reopen();
+    }
+
     pub fn root(&self) -> PathBuf {
         self.tmp.path().join("vault")
     }

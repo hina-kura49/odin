@@ -150,4 +150,21 @@ impl Vault {
         let _ = (path, new_title);
         todo!()
     }
+
+    /// タイトルと本文から探す。タイトルに一致したページを、本文だけに一致したページより上位にする。
+    pub fn search(&self, query: &str) -> Result<Vec<SearchHit>> {
+        let _ = query;
+        todo!()
+    }
+
+    /// 更新日時(modified_at)の新しい順に、最大 `limit` 件を返す。
+    pub fn recent_pages(&self, limit: usize) -> Result<Vec<PageMeta>> {
+        let _ = limit;
+        todo!()
+    }
+
+    /// vault のファイルから索引を作り直す。
+    pub fn rebuild_index(&self) -> Result<()> {
+        todo!()
+    }
 }

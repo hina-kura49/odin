@@ -88,42 +88,43 @@ const NEW_TITLE: &str = "新[ぁ-んa-z0-9]{0,8}";
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(48))]
 
-    /// rename の後、他のページはリンクの行き先だけが新しい名前に変わり、ほかは1バイトも変わらない。
+    /// rename の後、どのページもリンクの行き先(と、旧タイトルと同じ表示文字列)だけが変わり、
+    /// ほかは1バイトも変わらない。改名するページ自身と、その子ページの中も同じ。
     #[test]
     fn rename_changes_only_link_destinations(
+        self_body in body(),
+        child_body in body(),
         root_body in body(),
         nested_body in body(),
         new_title in NEW_TITLE,
     ) {
         let v = VaultBuilder::new()
-            .file("a.md", "")
-            .file("a/c.md", "")
+            .file("a.md", render(&self_body, "", "a"))
+            .file("a/c.md", render(&child_body, "../", "a"))
             .file("x.md", render(&root_body, "", "a"))
             .file("y/z.md", render(&nested_body, "../", "a"))
             .open();
 
         v.rename_page("a.md", &new_title).unwrap();
 
-        prop_assert_eq!(
-            String::from_utf8(v.disk_bytes("x.md")).unwrap(),
-            render(&root_body, "", &new_title)
-        );
-        prop_assert_eq!(
-            String::from_utf8(v.disk_bytes("y/z.md")).unwrap(),
-            render(&nested_body, "../", &new_title)
-        );
+        let read = |rel: String| String::from_utf8(v.disk_bytes(&rel)).unwrap();
+        prop_assert_eq!(read(format!("{new_title}.md")), render(&self_body, "", &new_title));
+        prop_assert_eq!(read(format!("{new_title}/c.md")), render(&child_body, "../", &new_title));
+        prop_assert_eq!(read("x.md".into()), render(&root_body, "", &new_title));
+        prop_assert_eq!(read("y/z.md".into()), render(&nested_body, "../", &new_title));
     }
 
     /// rename してから元の名前に戻すと、vault のすべてのファイルがバイト単位で元通りになる。
     #[test]
     fn rename_and_back_restores_every_file(
+        self_body in body(),
         root_body in body(),
         nested_body in body(),
         child_body in body(),
         new_title in NEW_TITLE,
     ) {
         let v = VaultBuilder::new()
-            .file("a.md", "名前を変えるページ")
+            .file("a.md", render(&self_body, "", "a"))
             .file("a/c.md", render(&child_body, "../", "a"))
             .file("x.md", render(&root_body, "", "a"))
             .file("y/z.md", render(&nested_body, "../", "a"))

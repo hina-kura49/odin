@@ -2,7 +2,6 @@
 //! 実行: `cargo bench --bench large_vault`(リリース相当のビルドになる)
 //!
 //! 目安を超えても失敗にはせず、数値と目安を並べて表示する。
-//! search / rebuild_index の測定は段階5で追加する。
 
 use std::fs;
 use std::path::Path;
@@ -81,4 +80,28 @@ fn main() {
         vault.list_tree().unwrap();
     });
     report("list_tree", took, Duration::from_millis(50));
+
+    // 2文字以上の日本語で、ほぼ全ページに一致する語。
+    let took = measure(|| {
+        vault.search("東京").unwrap();
+    });
+    report("search(東京、多数一致)", took, Duration::from_millis(50));
+
+    let took = measure(|| {
+        vault.search("会議メモ").unwrap();
+    });
+    report(
+        "search(会議メモ、多数一致)",
+        took,
+        Duration::from_millis(50),
+    );
+
+    // 作り直しは重いので回数を減らす。
+    let started = Instant::now();
+    vault.rebuild_index().unwrap();
+    report(
+        "rebuild_index(1回)",
+        started.elapsed(),
+        Duration::from_secs(5),
+    );
 }
