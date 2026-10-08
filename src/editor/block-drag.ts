@@ -1,15 +1,15 @@
 import type { EditorView } from '@milkdown/kit/prose/view'
-import { blockElements, moveBlock, settleBlocks, snapshotBlocks } from './block-move'
+import { childElements, moveChild, settleChildren, snapshotChildren, type Container } from './block-move'
 
 /**
- * ハンドルをつまんでブロックを並べ替える。
+ * ハンドルをつまんでブロック(またはリストの項目)を並べ替える。動かせるのは同じ入れ物の中だけ。
  * - つまんだブロックはポインタに付いて動き、周りのブロックは滑って場所を空ける(transform とばねのトランジション)
  * - 離すと、つまんだブロックが新しい場所へ収まる。Esc で取りやめると元の場所へ戻る
  * - 開始時に位置を一度だけ読み、移動中は計算と、位置が変わるブロックへの transform の書き込みだけを行う
  *   (数百ブロックでも、毎フレームのレイアウト再計算を起こさない)
  */
-export function startBlockDrag(view: EditorView, index: number, event: PointerEvent, scroller: HTMLElement): void {
-  const els = blockElements(view)
+export function startBlockDrag(view: EditorView, container: Container, index: number, event: PointerEvent, scroller: HTMLElement): void {
+  const els = childElements(view, container)
   const dragged = els[index]
   if (!dragged) return
   const rects = els.map((el) => el.getBoundingClientRect())
@@ -28,9 +28,13 @@ export function startBlockDrag(view: EditorView, index: number, event: PointerEv
   // ドロップ位置を示す線(デザイン 3「ドラッグ中」)
   const host = view.dom.parentElement ?? view.dom
   // 線の位置は、ブロックを包む要素の中での位置(開始時の座標で計算する。スクロールしても一緒に動く)
-  const hostTop = host.getBoundingClientRect().top
+  const hostRect = host.getBoundingClientRect()
+  const hostTop = hostRect.top
   const line = document.createElement('div')
   line.className = 'block-drop-line'
+  // 線の幅は、動かすもの(ブロックやリストの項目)の幅に合わせる
+  line.style.left = `${own.left - hostRect.left}px`
+  line.style.width = `${own.width}px`
   host.append(line)
 
   dragged.classList.add('block-dragging')
@@ -83,7 +87,7 @@ export function startBlockDrag(view: EditorView, index: number, event: PointerEv
     window.removeEventListener('keydown', onKey, true)
     window.removeEventListener('blur', onCancel)
     // いまの見た目の位置を控えてから、transform を外して文書を並べ替え、控えた位置から滑らせる
-    const before = snapshotBlocks(view)
+    const before = snapshotChildren(view, container)
     const draggedRect = dragged.getBoundingClientRect()
     for (const el of els) {
       el.classList.remove('block-dragging', 'block-shifting')
@@ -92,11 +96,11 @@ export function startBlockDrag(view: EditorView, index: number, event: PointerEv
     line.remove()
     document.body.classList.remove('block-drag-active')
     if (commit && target !== index) {
-      moveBlock(view, index, target)
-      const movedEl = blockElements(view)[target]
-      settleBlocks(view, before, movedEl ? { el: movedEl, rect: draggedRect } : undefined)
+      moveChild(view, container, index, target)
+      const movedEl = childElements(view, container)[target]
+      settleChildren(view, container, before, movedEl ? { el: movedEl, rect: draggedRect } : undefined)
     } else {
-      settleBlocks(view, before, { el: dragged, rect: draggedRect })
+      settleChildren(view, container, before, { el: dragged, rect: draggedRect })
     }
     view.focus()
   }

@@ -16,10 +16,14 @@ export const easing = (name: 'enter' | 'exit' | 'move' | 'spring') => css(`ease-
 export const exitRatio = () => Number.parseFloat(css('exit-ratio')) || 0.6
 
 /** 「視差効果を減らす」が有効か。有効なら位置の動きをやめ、短いフェードだけにする */
-export const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+export const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+
+/** アニメーションを使えるか(テスト用の環境などでは使えないので、動きなしで進める) */
+export const canAnimate = (el: Element): boolean => typeof el.animate === 'function' && !reducedMotion()
 
 /** 要素で動いているアニメーションを止める(止める前の見た目の位置は getBoundingClientRect で読んでおく) */
 export function cancelAnimations(el: Element): void {
+  if (typeof el.getAnimations !== 'function') return
   for (const a of el.getAnimations()) a.cancel()
 }
 
@@ -33,7 +37,7 @@ export function slideFrom(el: HTMLElement, before: DOMRect, opts: { duration: nu
   const dx = opts.axis === 'y' ? 0 : before.left - after.left
   const dy = opts.axis === 'x' ? 0 : before.top - after.top
   if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return
-  if (reducedMotion()) return
+  if (!canAnimate(el)) return
   el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], {
     duration: opts.duration,
     easing: opts.easing,
@@ -43,6 +47,7 @@ export function slideFrom(el: HTMLElement, before: DOMRect, opts: { duration: nu
 /** 現れる要素: 短いフェードと、わずかな移動(視差効果を減らす設定ではフェードだけ) */
 export function fadeIn(el: HTMLElement, opts: { duration: number; offsetY?: number; scale?: number }): void {
   cancelAnimations(el)
+  if (typeof el.animate !== 'function') return
   const from = reducedMotion() ? 'none' : `translateY(${opts.offsetY ?? 0}px) scale(${opts.scale ?? 1})`
   el.animate([{ opacity: 0, transform: from }, { opacity: 1, transform: 'none' }], {
     duration: opts.duration,

@@ -28,7 +28,7 @@ import { cn } from '@/lib/cn'
 import { isComposing } from '@/lib/keyboard'
 import { usePresence } from '@/lib/presence'
 import { useApp } from '@/store/app'
-import { blockIndexAt, blockStarts } from './block-move'
+import { childStarts, unitAt, type Container } from './block-move'
 import { startBlockDrag } from './block-drag'
 import { insertPageLink } from './page-link'
 import { trackPosition } from './tracked-pos'
@@ -274,7 +274,7 @@ function FormatToolbar({ view, host, bridge }: { view: EditorView; host: HTMLEle
   const buttons: { name: string; label: string; keys: string; Icon: LucideIcon }[] = [
     { name: 'strong', label: '太字', keys: '⌘B', Icon: Bold },
     { name: 'emphasis', label: '斜体', keys: '⌘I', Icon: Italic },
-    { name: 'inlineCode', label: 'コード', keys: '⌘⇧C', Icon: Code },
+    { name: 'inlineCode', label: 'コード', keys: '⌘E', Icon: Code },
   ]
 
   return (
@@ -382,25 +382,31 @@ function LinkInput({ initial, onSubmit, onCancel }: { initial: string; onSubmit:
 // ---- ドラッグのハンドル(デザイン 3 左) ----
 
 function DragHandle({ view, host }: { view: EditorView; host: HTMLElement }) {
-  const [hover, setHover] = useState<{ index: number; top: number; left: number } | null>(null)
+  const [hover, setHover] = useState<{ container: Container; index: number; top: number; left: number } | null>(null)
   const handleRef = useRef<HTMLButtonElement>(null)
 
   useLayoutEffect(() => {
-    // マウスの高さにあるブロックを探す(ブロック全体の位置は読まず、その高さの1点だけを調べる)
+    // マウスの高さにある並べ替えの単位(最上位のブロック、またはリストの項目)を探す。
+    // 全体の位置は読まず、その1点だけを調べる。左の余白にマウスがあるときは、文章の左端で調べる
     const onMove = (e: MouseEvent) => {
       if (document.body.classList.contains('block-drag-active')) return
       if (e.target === handleRef.current || handleRef.current?.contains(e.target as Node)) return
-      const content = view.dom.getBoundingClientRect()
-      const found = view.posAtCoords({ left: content.left + 8, top: e.clientY })
+      const first = view.dom.firstElementChild
+      const textLeft = first instanceof HTMLElement ? first.getBoundingClientRect().left : view.dom.getBoundingClientRect().left
+      const found = view.posAtCoords({ left: Math.max(e.clientX, textLeft + 8), top: e.clientY })
       if (!found) return setHover(null)
-      const index = blockIndexAt(view, found.pos)
-      const start = blockStarts(view)[index]
+      const { container, index } = unitAt(view.state.doc, found.inside >= 0 ? found.inside + 1 : found.pos)
+      const start = childStarts(view.state.doc, container)[index]
       const el = start === undefined ? null : view.nodeDOM(start)
       if (!(el instanceof HTMLElement)) return setHover(null)
       const r = el.getBoundingClientRect()
       const line = Number.parseFloat(getComputedStyle(el).lineHeight) || 24
-      const p = toHost(host, r.left, r.top + Math.min(r.height, line) / 2)
-      setHover((prev) => (prev?.index === index && prev.top === p.top ? prev : { index, top: p.top, left: p.left }))
+      // リストの項目は、行頭の記号(黒丸・番号)の左に出す。チェック項目はチェックボックスが項目の中にある
+      const marker = el.tagName === 'LI' && el.dataset.itemType !== 'task' ? 22 : 0
+      const p = toHost(host, r.left - marker, r.top + Math.min(r.height, line) / 2)
+      setHover((prev) =>
+        prev?.index === index && prev.container.pos === container.pos && prev.top === p.top ? prev : { container, index, top: p.top, left: p.left },
+      )
     }
     const onLeave = (e: MouseEvent) => {
       if (!host.contains(e.relatedTarget as Node | null)) setHover(null)
@@ -427,7 +433,7 @@ function DragHandle({ view, host }: { view: EditorView; host: HTMLElement }) {
         if (e.button !== 0) return
         e.preventDefault()
         const scroller = host.closest<HTMLElement>('.overflow-y-auto') ?? document.documentElement
-        startBlockDrag(view, hover.index, e.nativeEvent, scroller)
+        startBlockDrag(view, hover.container, hover.index, e.nativeEvent, scroller)
         setHover(null)
       }}
     >

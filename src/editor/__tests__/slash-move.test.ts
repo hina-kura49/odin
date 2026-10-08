@@ -5,7 +5,7 @@ import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { callCommand } from '@milkdown/kit/utils'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { moveBlock } from '../block-move'
+import { moveBlock, moveChild, unitAt, moveCurrentBlock } from '../block-move'
 import { configureMarkdown, loadMarkdown, serializeMarkdown } from '../markdown'
 import { filterSlashItems, pageTitleFromQuery, runBlockCommand, slashKey, slashPlugin, SLASH_ITEMS } from '../slash'
 
@@ -157,5 +157,100 @@ describe('ブロックの並べ替え', () => {
     moveBlock(view, 3, 0)
     expect(view.state.selection.head).toBe(3)
     expect(view.state.doc.child(0).textContent).toBe('最後の段落。')
+  })
+})
+
+describe('リストの項目の並べ替え', () => {
+  const source = [
+    '# 見出し',
+    '',
+    '| a | b |',
+    '| :--- | ---: |',
+    '| 1 | 2 |',
+    '',
+    '- 項目A',
+    '- 項目B',
+    '  - 子B1',
+    '  - 子B2',
+    '- 項目C',
+    '',
+    '3. 三',
+    '4. 四',
+    '5. 五',
+    '',
+    '- [ ] タスク1',
+    '- [x] タスク2',
+    '',
+    '***',
+    '',
+  ].join('\n')
+
+  /** 本文の文字列 text を含む、いちばん内側の項目の位置 */
+  const posOf = (text: string) => {
+    let found = -1
+    view.state.doc.descendants((node, pos) => {
+      if (node.isText && node.text === text) found = pos
+    })
+    if (found < 0) throw new Error(`見つからない: ${text}`)
+    return found
+  }
+  const save = (snapshot: ReturnType<typeof setDoc>) => editor.action((ctx) => serializeMarkdown(ctx, view.state.doc, snapshot))
+
+  it('箇条書きの項目を動かすと子の項目も一緒に動き、ほかのブロックの原文は変わらない', () => {
+    const snapshot = setDoc(source)
+    const { container, index } = unitAt(view.state.doc, posOf('項目B'))
+    expect(index).toBe(1)
+    moveChild(view, container, index, 2)
+    const out = save(snapshot)
+    expect(out).toContain('- 項目A\n- 項目C\n- 項目B\n  - 子B1\n  - 子B2\n')
+    // リスト以外は原文のまま(表の区切り行、*** の区切り線、番号付きリストの 3. から始まる番号)
+    expect(out.startsWith('# 見出し\n\n| a | b |\n| :--- | ---: |\n| 1 | 2 |\n\n')).toBe(true)
+    expect(out).toContain('3. 三\n4. 四\n5. 五')
+    expect(out.endsWith('\n\n***\n')).toBe(true)
+  })
+
+  it('子の項目は、同じ親の中のきょうだいとして動く', () => {
+    const snapshot = setDoc(source)
+    const { container, index } = unitAt(view.state.doc, posOf('子B2'))
+    moveChild(view, container, index, 0)
+    expect(save(snapshot)).toContain('- 項目B\n  - 子B2\n  - 子B1\n')
+  })
+
+  it('番号付きリストは、動かした後の保存で番号が振り直される(開始番号は保つ)', () => {
+    const snapshot = setDoc(source)
+    const { container, index } = unitAt(view.state.doc, posOf('五'))
+    moveChild(view, container, index, 0)
+    expect(save(snapshot)).toContain('3. 五\n4. 三\n5. 四\n')
+  })
+
+  it('チェックリストの項目は、チェックの状態ごと動く', () => {
+    const snapshot = setDoc(source)
+    const { container, index } = unitAt(view.state.doc, posOf('タスク2'))
+    moveChild(view, container, index, 0)
+    expect(save(snapshot)).toContain('- [x] タスク2\n- [ ] タスク1\n')
+  })
+
+  it('⌘⇧↑ / ⌘⇧↓: カーソルのある項目を同じリストの中で動かす', () => {
+    const snapshot = setDoc(source)
+    cursorAt(posOf('項目A') + 1)
+    moveCurrentBlock(view, 1)
+    expect(save(snapshot)).toContain('- 項目B\n  - 子B1\n  - 子B2\n- 項目A\n- 項目C\n')
+  })
+
+  it('⌘⇧↑: リストの先頭の項目からさらに上へは、リスト全体を最上位のブロックとして動かす', () => {
+    const snapshot = setDoc(source)
+    cursorAt(posOf('三') + 1)
+    moveCurrentBlock(view, -1)
+    const out = save(snapshot)
+    expect(out.indexOf('3. 三')).toBeLessThan(out.indexOf('- 項目A'))
+    expect(out).toContain('3. 三\n4. 四\n5. 五') // 原文のまま
+  })
+
+  it('取り消しで元に戻る', () => {
+    const snapshot = setDoc(source)
+    const { container, index } = unitAt(view.state.doc, posOf('項目C'))
+    moveChild(view, container, index, 0)
+    editor.action(callCommand(undoCommand.key))
+    expect(save(snapshot)).toBe(source)
   })
 })

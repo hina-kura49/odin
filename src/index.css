@@ -177,8 +177,6 @@ body.block-drag-active * {
 .block-drop-line {
   position: absolute;
   top: 0;
-  left: var(--space-6);
-  right: var(--space-6);
   height: 2px;
   border-radius: 1px;
   background: var(--accent);
