@@ -1,8 +1,7 @@
 import { backend, type PageMeta, type SearchHit, type TreeNode } from '@/backend'
-import { ancestorsOf, isPage, SEARCH_LIMIT } from '@/store/app'
+import { ancestorsOf, SEARCH_LIMIT } from '@/store/app'
 
 export const PALETTE_RECENT_LIMIT = 10
-const TITLE_LIMIT = 20
 
 export type PaletteCommand = { id: string; label: string; keys?: string; aliases: string[] }
 
@@ -34,21 +33,6 @@ export const pageRow = (tree: TreeNode[], meta: Pick<PageMeta, 'path' | 'title'>
     .map((n) => n.title)
     .join(' / '),
 })
-
-/** タイトルに検索語を含むページ(ツリーから。バックエンドは呼ばない) */
-export function matchTitles(tree: TreeNode[], query: string): PageRow[] {
-  const q = normalize(query.trim())
-  const out: PageRow[] = []
-  const walk = (nodes: TreeNode[]) => {
-    for (const n of nodes) {
-      if (out.length >= TITLE_LIMIT) return
-      if (isPage(n) && normalize(n.title).includes(q)) out.push(pageRow(tree, n))
-      walk(n.children)
-    }
-  }
-  walk(tree)
-  return out
-}
 
 export function matchCommands(query: string): PaletteCommand[] {
   const q = normalize(query.trim())
@@ -97,10 +81,10 @@ export class PaletteSearch {
     backend()
       .search(q, SEARCH_LIMIT)
       .then((found) => {
-        const pages = matchTitles(this.tree(), q)
-        const inPages = new Set(pages.map((p) => p.path))
-        // 本文に当たったものだけを「本文の検索結果」に出す(タイトルの一覧と重ねない)
-        const hits = found.filter((h) => h.snippet.hit !== '' && !inPages.has(h.path))
+        // 振り分けはバックエンドの titleMatched だけで行う(並び順もバックエンドのまま)
+        const tree = this.tree()
+        const pages = found.filter((h) => h.titleMatched).map((h) => pageRow(tree, h))
+        const hits = found.filter((h) => !h.titleMatched)
         done({ kind: 'search', query, pages, hits, commands: matchCommands(q) })
       })
       .catch(() => {})

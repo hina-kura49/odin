@@ -14,7 +14,8 @@ export type NodeKind = 'page' | 'folder'
 export type TreeNode = { path: string; title: string; kind: NodeKind; children: TreeNode[] }
 export type PageMeta = { path: string; title: string; modifiedAt: number } // UNIX時刻のミリ秒
 export type Snippet = { before: string; hit: string; after: string }
-export type SearchHit = { path: string; title: string; snippet: Snippet }
+/** titleMatched: タイトルに検索語が当たったか。パレットの「ページ」と「本文の検索結果」の振り分けはこの値だけで行う */
+export type SearchHit = { path: string; title: string; titleMatched: boolean; snippet: Snippet }
 export type WriteResult = { ok: true; version: string } | { ok: false; reason: 'conflict' }
 export type BackendErrorKind = 'notFound' | 'invalidPath' | 'notAPage' | 'notUtf8' | 'readOnly' | 'nameOccupied' | 'io'
 

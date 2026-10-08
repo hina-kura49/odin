@@ -28,7 +28,12 @@ class ControlledBackend extends MockBackend {
   }
 }
 
-const hit = (path: string, title: string, before: string, h: string, after: string): SearchHit => ({ path, title, snippet: { before, hit: h, after } })
+const hit = (path: string, title: string, before: string, h: string, after: string, titleMatched = false): SearchHit => ({
+  path,
+  title,
+  titleMatched,
+  snippet: { before, hit: h, after },
+})
 const flush = () => act(async () => {})
 
 let mock: ControlledBackend
@@ -82,19 +87,26 @@ describe('PaletteSearch(検索の順番)', () => {
     if (seen[0].kind === 'recent') expect(seen[0].recent[0].path).toBe((await mock.recentPages(10))[0].path)
   })
 
-  it('タイトルに当たったページと、本文に当たったページを分け、本文の前後はそのまま渡す', async () => {
+  it('「ページ」と「本文の検索結果」は titleMatched だけで振り分け、本文の前後はそのまま渡す', async () => {
     const { s, seen } = setup()
     s.run('プロダクト')
-    mock.answer('プロダクト', [
-      hit('仕事/企画/新しいプロダクトの考え方.md', '新しいプロダクトの考え方', '', 'プロダクト', ''),
-      hit('学び/デザイン/デザインのメモ.md', 'デザインのメモ', '…シンプルな ', 'プロダクト', ' を目指して'),
-    ])
+    // タイトルに検索語を含んでいても、titleMatched が false なら本文の側に出す(フロントでは照らし合わせない)
+    const body = hit('仕事/企画/プロダクトの方向性.md', 'プロダクトの方向性', '…シンプルな ', 'プロダクト', ' を目指して')
+    const title = hit('学び/デザイン/デザインのメモ.md', 'デザインのメモ', '', '', '', true)
+    mock.answer('プロダクト', [body, title])
     await flush()
     const r = seen[0]
     if (r.kind !== 'search') throw new Error('search の結果のはず')
-    expect(r.pages.map((p) => p.path)).toContain('仕事/企画/新しいプロダクトの考え方.md')
-    expect(r.pages.find((p) => p.path === '仕事/企画/新しいプロダクトの考え方.md')?.where).toBe('仕事 / 企画')
-    expect(r.hits).toEqual([hit('学び/デザイン/デザインのメモ.md', 'デザインのメモ', '…シンプルな ', 'プロダクト', ' を目指して')])
+    expect(r.pages).toEqual([{ path: '学び/デザイン/デザインのメモ.md', title: 'デザインのメモ', where: '学び / デザイン' }])
+    expect(r.hits).toEqual([body])
+  })
+})
+
+describe('Mock の search', () => {
+  it('タイトルに当たったかを titleMatched で返す', async () => {
+    const hits = await new MockBackend().search('プロダクト', 50)
+    expect(hits.find((h) => h.path === '仕事/企画/プロダクトの方向性.md')?.titleMatched).toBe(true)
+    expect(hits.find((h) => h.path === '学び/デザイン/デザインのメモ.md')?.titleMatched).toBe(false)
   })
 })
 

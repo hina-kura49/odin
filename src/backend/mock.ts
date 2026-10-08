@@ -192,12 +192,13 @@ export class MockBackend implements Backend {
       const title = titleOf(path)
       const text = page.content.replace(/\s+/g, ' ')
       const at = text.toLowerCase().indexOf(q)
-      if (at === -1 && !title.toLowerCase().includes(q)) continue
+      const titleMatched = title.toLowerCase().includes(q)
+      if (at === -1 && !titleMatched) continue
       const snippet =
         at === -1
           ? { before: text.slice(0, 40), hit: '', after: '' }
           : { before: text.slice(Math.max(0, at - 20), at), hit: text.slice(at, at + q.length), after: text.slice(at + q.length, at + q.length + 30) }
-      hits.push({ path, title, snippet })
+      hits.push({ path, title, titleMatched, snippet })
     }
     return hits
   }
