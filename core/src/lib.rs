@@ -3,7 +3,7 @@
 //! この段階ではテストをコンパイルさせるための骨組みだけを置いている。
 //! 関数の本体はすべて `todo!()` で、実装は担当者が書く。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// write_page が使う一時ファイルの名前の接頭辞。`.` で始まり、一時ファイルの名前は `.md` で終わらない。
 /// open のときに、この接頭辞で始まる残った一時ファイルを vault 全体から削除する。
@@ -107,31 +107,65 @@ impl Trash for SystemTrash {
 }
 
 pub struct Vault {
-    // フィールドは実装担当者が決める。
-    _private: (),
+    // vault のフォルダ
+    root: PathBuf,
+    // ページを消すときに使うゴミ箱。
+    trash: Box<dyn Trash>,
 }
 
 impl Vault {
-    /// `index_dir` は vault の外に置く索引用のフォルダ。存在しなければ途中も含めて作る。
+    /// `index_dir` は vault の外に置く索引用のフォルダ。
+    /// 存在しなければ途中も含めて作る。
     pub fn open(root: &Path, index_dir: &Path) -> Result<Vault> {
-        let _ = (root, index_dir);
-        todo!()
+        Vault::open_with_trash(root, index_dir, Box::new(SystemTrash))
     }
 
-    /// ゴミ箱の処理を差し替えて開く。それ以外は `open` と同じ。
+    /// ゴミ箱の処理を差し替えて開く。それ以外は`open`と同じ。
     pub fn open_with_trash(root: &Path, index_dir: &Path, trash: Box<dyn Trash>) -> Result<Vault> {
-        let _ = (root, index_dir, trash);
-        todo!()
+        // index_dirハステップ１２で使う。今は使わない。
+        let _ = index_dir;
+
+        // rootがフォルダでなければエラーにする。
+        if !root.is_dir() {
+            return Err(Error::NotFound(root.display().to_string()));
+        }
+
+        Ok(Vault {
+            root: root.to_path_buf(),
+            trash,
+        })
     }
 
     pub fn list_tree(&self) -> Result<Vec<TreeNode>> {
         todo!()
     }
-
     /// 内容と version を返す。version は内容のハッシュに基づく不透明な文字列。
     pub fn read_page(&self, path: &str) -> Result<(String, String)> {
-        let _ = path;
-        todo!()
+        // vaultのフォルダとpathをつなげて、ファイルの場所を作る。
+        let full_path = self.root.join(path);
+
+        // ファイルを読んで、バイト列(Vec<u8>)として受け取る。
+        let bytes = match std::fs::read(&full_path) {
+            // 読めたら、その中身を使う。
+            Ok(bytes) => bytes,
+            // ファイルがなかったらNotFoundにする。
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(Error::NotFound(path.to_string()));
+            }
+            // それ以外の失敗はIoのまま返す。
+            Err(e) => return Err(Error::Io(e)),
+        };
+
+        // バイト列を文字列にする。UTF-8として読めなければNotUtf8にする。
+        let content = match String::from_utf8(bytes) {
+            Ok(content) => content,
+            Err(_) => return Err(Error::NotUtf8(path.to_string())),
+        };
+
+        // versionはステップ４で作る。今は仮に空にしておく。
+        let version = String::new();
+
+        Ok((content, version))
     }
 
     /// ディスク上の現在の内容の version が `base_version` と異なれば `Conflict` を返し、
