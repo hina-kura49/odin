@@ -1,8 +1,12 @@
-import { ChevronsRight } from 'lucide-react'
+import { ChevronsRight, FileX } from 'lucide-react'
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { MarkdownEditor } from '@/editor/MarkdownEditor'
 import { duration, easing, exitRatio, slideFrom } from '@/lib/motion'
-import { ancestorsOf, useApp } from '@/store/app'
+import { ancestorsOf, useApp, type OpenPage } from '@/store/app'
+import { EmptyState } from './EmptyState'
+import { NoticeBar } from './NoticeBar'
+
+type ReadablePage = Extract<OpenPage, { content: string }>
 
 export function PageView() {
   const page = useApp((s) => s.page)
@@ -11,6 +15,9 @@ export function PageView() {
   const toggleSidebar = useApp((s) => s.toggleSidebar)
   const trail = page ? ancestorsOf(tree, page.path) : []
   const title = trail.at(-1)?.title ?? ''
+  // 開けないページのときもエディタは片づけず(作り直すと次の表示が遅れる)、直前に開けたページのまま隠しておく
+  const [editorPage, setEditorPage] = useState<ReadablePage | null>(null)
+  if (page && !page.unreadable && page !== editorPage) setEditorPage(page)
   // エディタが最初の文書を表示できるまで、タイトルも含めて何も出さない
   const [ready, setReady] = useState(false)
   const onReady = useCallback(() => setReady(true), [])
@@ -34,11 +41,30 @@ export function PageView() {
         </nav>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {page && (
-          <article data-follow-sidebar className="page" style={{ visibility: ready ? 'visible' : 'hidden' }}>
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
+        {/* 通知は本文の上に重ねる(出ても本文の位置を動かさない) */}
+        <div className="sticky top-0 z-10 h-0 overflow-visible px-6 pt-2">
+          <NoticeBar />
+        </div>
+        {page?.unreadable && (
+          <EmptyState icon={<FileX size={44} strokeWidth={1.25} />} title="このファイルは開けません">
+            文字コードが UTF-8 ではないため、表示も編集もできません。
+          </EmptyState>
+        )}
+        {editorPage && (
+          <article
+            data-follow-sidebar
+            className="page"
+            style={{ visibility: ready ? 'visible' : 'hidden', display: page && !page.unreadable ? undefined : 'none' }}
+          >
             <h1 className="page-title">{title}</h1>
-            <MarkdownEditor path={page.path} loadId={page.loadId} content={page.content} onReady={onReady} />
+            <MarkdownEditor
+              path={editorPage.path}
+              loadId={editorPage.loadId}
+              content={editorPage.content}
+              version={editorPage.version}
+              onReady={onReady}
+            />
           </article>
         )}
       </div>

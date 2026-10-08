@@ -112,6 +112,11 @@ export type LoadedMarkdown = { doc: PMNode; snapshot: SourceSnapshot }
 
 const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/
 
+/** 先頭の BOM(U+FEFF)を外して控える。保存時に付け直す */
+export function splitBom(content: string): { bom: string; rest: string } {
+  return content.startsWith('\ufeff') ? { bom: '\ufeff', rest: content.slice(1) } : { bom: '', rest: content }
+}
+
 /** フロントマターと本文に分ける。フロントマターはエディタに出さない */
 export function splitFrontmatter(markdown: string): { frontmatter: string; body: string } {
   const frontmatter = FRONTMATTER.exec(markdown)?.[0] ?? ''

@@ -2,7 +2,8 @@ import { MockBackend } from './mock'
 import { TauriBackend } from './tauri'
 import type { Backend } from './types'
 
-export type { Backend, PageMeta, SearchHit, TreeNode, WriteResult } from './types'
+export { BackendError, isBackendError, toBackendError } from './types'
+export type { Backend, BackendErrorKind, NodeKind, PageMeta, SearchHit, Snippet, TreeNode, WriteResult } from './types'
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
@@ -19,7 +20,8 @@ function createMock(): MockBackend {
     empty: params.has('empty'),
     latencyMs: Number(params.get('latency') ?? 0),
   })
-  // 開発者ツールから外部変更を再現できるようにする: __mock.simulateExternalEdit(path, content)
+  // 開発者ツールから外部の変更を再現できるようにする:
+  //   __mock.simulateExternalEdit(path, content) / __mock.simulateExternalDelete(path) / __mock.setReadOnly(path, true)
   Object.assign(window, { __mock: mock })
   return mock
 }

@@ -1,8 +1,9 @@
-import { MOCK_FOLDERS, MOCK_PAGES, MOCK_RECENT, MOCK_VAULT } from './mock-data'
-import type { Backend, PageMeta, SearchHit, TreeNode, WriteResult } from './types'
+import { dirOf, hasScheme, resolveInVault } from '@/lib/paths'
+import { MOCK_FOLDERS, MOCK_PAGES, MOCK_RECENT, MOCK_SPECIAL, MOCK_VAULT } from './mock-data'
+import { BackendError, type Backend, type PageMeta, type SearchHit, type TreeNode, type WriteResult } from './types'
 
 export type MockOptions = {
-  /** 起動時に開いている保管庫。null なら初回起動(フォルダ未選択)の状態 */
+  /** 前回開いた保管庫。null なら初回起動(フォルダ未選択)の状態 */
   vault?: string | null
   /** 空の保管庫で始める */
   empty?: boolean
@@ -12,18 +13,31 @@ export type MockOptions = {
 
 const INBOX = 'Inbox.md'
 
+type MockPage = { content: string; version: string; modifiedAt: number; readOnly?: boolean; notUtf8?: boolean }
+
 const titleOf = (path: string) => (path.split('/').pop() ?? path).replace(/\.md$/, '')
-const parentOf = (path: string) => path.split('/').slice(0, -1).join('/')
 const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name)
+
+const safeDecode = (s: string) => {
+  try {
+    return decodeURI(s)
+  } catch {
+    return s
+  }
+}
+
+/** バックエンドと同じように、タイトルを整える(空白の除去、使えない文字の置き換え) */
+const normalizeTitle = (title: string) => title.replace(/[/\\]/g, '-').replace(/\s+/g, ' ').trim() || '無題'
 
 /** メモリ上のダミーデータで動くバックエンド。ブラウザ単体(vite dev)で全画面を確認するためのもの。 */
 export class MockBackend implements Backend {
   private vault: string | null
   private folders: string[]
-  private pages = new Map<string, { content: string; modifiedAt: number }>()
+  private pages = new Map<string, MockPage>()
   private recent: string[]
-  private listeners = new Set<(path: string) => void>()
+  private listeners = new Set<() => void>()
   private clock = Date.now()
+  private versionSeq = 0
   private latencyMs: number
 
   constructor(options: MockOptions = {}) {
@@ -31,34 +45,51 @@ export class MockBackend implements Backend {
     this.latencyMs = options.latencyMs ?? 0
     const empty = options.empty ?? false
     this.folders = empty ? [] : [...MOCK_FOLDERS]
-    if (!empty) for (const [path, content] of MOCK_PAGES) this.pages.set(path, { content, modifiedAt: this.tick() })
+    if (!empty) {
+      for (const [path, content] of MOCK_PAGES) this.put(path, content)
+      for (const [path, content, flags] of MOCK_SPECIAL) this.put(path, content, flags)
+    }
     this.recent = empty ? [] : [...MOCK_RECENT]
   }
 
-  private tick(): number {
+  private put(path: string, content: string, flags: Partial<Pick<MockPage, 'readOnly' | 'notUtf8'>> = {}): MockPage {
     this.clock = Math.max(this.clock + 1, Date.now())
-    return this.clock
+    const page = { content, version: `v${++this.versionSeq}`, modifiedAt: this.clock, ...flags }
+    this.pages.set(path, page)
+    return page
   }
 
   private async delay(): Promise<void> {
     if (this.latencyMs > 0) await new Promise((r) => setTimeout(r, this.latencyMs))
   }
 
-  private meta(path: string): PageMeta {
+  private page(path: string): MockPage {
     const page = this.pages.get(path)
-    if (!page) throw new Error(`ページが見つかりません: ${path}`)
-    return { path, title: titleOf(path), modifiedAt: page.modifiedAt }
+    if (!page) throw new BackendError('notFound', `ページが見つかりません: ${path}`)
+    return page
+  }
+
+  private meta(path: string): PageMeta {
+    return { path, title: titleOf(path), modifiedAt: this.page(path).modifiedAt }
   }
 
   private touch(path: string): void {
-    this.recent = [path, ...this.recent.filter((p) => p !== path)].slice(0, 20)
+    this.recent = [path, ...this.recent.filter((p) => p !== path)].slice(0, 100)
   }
 
   private uniquePath(dir: string, title: string): string {
-    const safe = title.replace(/[/\\:]/g, '-').trim() || '無題'
-    let path = join(dir, `${safe}.md`)
-    for (let n = 2; this.pages.has(path); n++) path = join(dir, `${safe} ${n}.md`)
+    let path = join(dir, `${title}.md`)
+    for (let n = 2; this.pages.has(path); n++) path = join(dir, `${title} ${n}.md`)
     return path
+  }
+
+  private notify(): void {
+    this.listeners.forEach((cb) => cb())
+  }
+
+  async currentVault(): Promise<string | null> {
+    await this.delay()
+    return this.vault
   }
 
   async openVault(): Promise<string | null> {
@@ -69,114 +100,146 @@ export class MockBackend implements Backend {
 
   async listTree(): Promise<TreeNode[]> {
     await this.delay()
-    // 契約には「いま開いている保管庫」を問い合わせる手段がないため、未選択なら失敗させる(提案中)
-    if (this.vault === null) throw new Error('保管庫が選ばれていません')
     const nodes = new Map<string, TreeNode>()
     const root: TreeNode[] = []
-    const add = (path: string) => {
-      const node: TreeNode = { path, title: titleOf(path), children: [] }
+    const add = (path: string, kind: TreeNode['kind']) => {
+      const node: TreeNode = { path, title: titleOf(path), kind, children: [] }
       nodes.set(path, node)
-      const parent = parentOf(path)
+      const parent = dirOf(path)
       ;(parent ? (nodes.get(parent)?.children ?? root) : root).push(node)
     }
-    for (const folder of this.folders) add(folder)
-    for (const path of this.pages.keys()) add(path)
+    for (const folder of this.folders) add(folder, 'folder')
+    for (const path of this.pages.keys()) add(path, 'page')
     return root
   }
 
-  async readPage(path: string): Promise<{ content: string; modifiedAt: number }> {
+  async readPage(path: string): Promise<{ content: string; version: string }> {
     await this.delay()
-    const page = this.pages.get(path)
-    if (!page) throw new Error(`ページが見つかりません: ${path}`)
+    const page = this.page(path)
+    if (page.notUtf8) throw new BackendError('notUtf8', `UTF-8 ではありません: ${path}`)
     this.touch(path)
-    return { ...page }
+    return { content: page.content, version: page.version }
   }
 
-  async writePage(path: string, content: string, baseModifiedAt: number): Promise<WriteResult> {
+  async writePage(path: string, content: string, baseVersion: string): Promise<WriteResult> {
     await this.delay()
-    const page = this.pages.get(path)
-    if (!page || page.modifiedAt !== baseModifiedAt) return { ok: false, reason: 'conflict' }
-    const modifiedAt = this.tick()
-    this.pages.set(path, { content, modifiedAt })
+    const page = this.page(path)
+    if (page.readOnly) throw new BackendError('readOnly', `読み取り専用です: ${path}`)
+    if (page.version !== baseVersion) return { ok: false, reason: 'conflict' }
+    const next = this.put(path, content)
     this.touch(path)
-    return { ok: true, modifiedAt }
+    return { ok: true, version: next.version }
   }
 
   async createPage(parentPath: string | null, title: string): Promise<PageMeta> {
     await this.delay()
     // 親がページ(…/名前.md)なら、同じ名前のフォルダを作って子ページを入れる
     let dir = parentPath ?? ''
-    if (dir.endsWith('.md')) {
+    if (this.pages.has(dir)) {
       dir = dir.replace(/\.md$/, '')
       if (!this.folders.includes(dir)) this.folders.push(dir)
+    } else if (dir && !this.folders.includes(dir)) {
+      throw new BackendError('notFound', `フォルダが見つかりません: ${dir}`)
     }
-    const path = this.uniquePath(dir, title)
-    this.pages.set(path, { content: '', modifiedAt: this.tick() })
+    const path = this.uniquePath(dir, normalizeTitle(title))
+    this.put(path, '')
     this.touch(path)
     return this.meta(path)
   }
 
   async renamePage(path: string, newTitle: string): Promise<PageMeta> {
     await this.delay()
-    const page = this.pages.get(path)
-    if (!page) throw new Error(`ページが見つかりません: ${path}`)
-    const next = this.uniquePath(parentOf(path), newTitle)
-    // Map の並び順(=サイドバーの並び)を保ったまま差し替える
-    this.pages = new Map([...this.pages].map(([p, v]) => (p === path ? [next, v] : [p, v])))
-    // 子ページ用のフォルダがあれば一緒に名前を変える
+    this.page(path)
+    const next = join(dirOf(path), `${normalizeTitle(newTitle)}.md`)
+    if (next === path) return this.meta(path)
+    if (this.pages.has(next)) throw new BackendError('nameOccupied', `同じ名前のページがあります: ${next}`)
+    // Map の並び順(=サイドバーの並び)を保ったまま差し替える。子ページ用のフォルダも一緒に名前を変える
     const oldDir = path.replace(/\.md$/, '')
     const newDir = next.replace(/\.md$/, '')
-    const moved = (p: string) => (p === oldDir || p.startsWith(`${oldDir}/`) ? newDir + p.slice(oldDir.length) : p)
-    this.folders = this.folders.map(moved)
+    const moved = (p: string) => (p === path ? next : p === oldDir || p.startsWith(`${oldDir}/`) ? newDir + p.slice(oldDir.length) : p)
     this.pages = new Map([...this.pages].map(([p, v]) => [moved(p), v]))
-    this.recent = this.recent.map((p) => (p === path ? next : moved(p)))
+    this.folders = this.folders.map(moved)
+    this.recent = this.recent.map(moved)
+    // 本物のバックエンドはほかのページからのリンクを書き換える。Mock では version を進めて同じ状況を再現する
+    const renamed = this.page(next)
+    this.put(next, renamed.content, { readOnly: renamed.readOnly })
     return this.meta(next)
   }
 
   async deletePage(path: string): Promise<void> {
     await this.delay()
+    this.page(path)
     this.pages.delete(path)
     this.recent = this.recent.filter((p) => p !== path)
   }
 
-  async search(query: string): Promise<SearchHit[]> {
+  async search(query: string, limit: number): Promise<SearchHit[]> {
     await this.delay()
     const q = query.trim().toLowerCase()
     if (!q) return []
     const hits: SearchHit[] = []
-    for (const [path, { content }] of this.pages) {
+    for (const [path, page] of this.pages) {
+      if (hits.length >= limit) break
+      if (page.notUtf8) continue
       const title = titleOf(path)
-      const at = content.toLowerCase().indexOf(q)
-      if (!title.toLowerCase().includes(q) && at === -1) continue
-      const snippet = at === -1 ? '' : `…${content.slice(Math.max(0, at - 10), at + q.length + 20).replace(/\s+/g, ' ')}…`
+      const text = page.content.replace(/\s+/g, ' ')
+      const at = text.toLowerCase().indexOf(q)
+      if (at === -1 && !title.toLowerCase().includes(q)) continue
+      const snippet =
+        at === -1
+          ? { before: text.slice(0, 40), hit: '', after: '' }
+          : { before: text.slice(Math.max(0, at - 20), at), hit: text.slice(at, at + q.length), after: text.slice(at + q.length, at + q.length + 30) }
       hits.push({ path, title, snippet })
     }
     return hits
   }
 
-  async recentPages(): Promise<PageMeta[]> {
+  async recentPages(limit: number): Promise<PageMeta[]> {
     await this.delay()
-    return this.recent.filter((p) => this.pages.has(p)).map((p) => this.meta(p))
+    return this.recent
+      .filter((p) => this.pages.has(p))
+      .slice(0, limit)
+      .map((p) => this.meta(p))
   }
 
   async captureToInbox(text: string): Promise<void> {
     await this.delay()
     const inbox = this.pages.get(INBOX)
     const content = inbox ? `${inbox.content.replace(/\n*$/, '\n')}- ${text}\n` : `- ${text}\n`
-    this.pages.set(INBOX, { content, modifiedAt: this.tick() })
-    this.listeners.forEach((cb) => cb(INBOX))
+    this.put(INBOX, content)
+    this.notify()
   }
 
-  onExternalChange(cb: (path: string) => void): () => void {
+  assetUrl(pagePath: string, src: string): string | null {
+    if (hasScheme(src)) return src
+    const path = resolveInVault(dirOf(pagePath), safeDecode(src))
+    if (path === null) return null
+    // Mock には画像ファイルがないので、パスごとに決まった仮の画像を返す
+    return `https://picsum.photos/seed/${encodeURIComponent(path)}/1200/800`
+  }
+
+  onExternalChange(cb: () => void): () => void {
     this.listeners.add(cb)
     return () => this.listeners.delete(cb)
   }
 
-  // ---- 開発用: 「他のアプリでファイルが変更された」状態を再現する ----
+  // ---- 開発用: 外部のアプリによる変更を再現する(開発者ツールから __mock.xxx で呼べる) ----
 
-  /** 外部のアプリがファイルを書き換えたことにする */
+  /** 外部のアプリがファイルを書き換えた */
   simulateExternalEdit(path: string, content: string): void {
-    this.pages.set(path, { content, modifiedAt: this.tick() })
-    this.listeners.forEach((cb) => cb(path))
+    this.put(path, content, { readOnly: this.pages.get(path)?.readOnly })
+    this.notify()
+  }
+
+  /** 外部のアプリがファイルを消した */
+  simulateExternalDelete(path: string): void {
+    this.pages.delete(path)
+    this.notify()
+  }
+
+  /** 読み取り専用にする / 戻す */
+  setReadOnly(path: string, readOnly: boolean): void {
+    const page = this.pages.get(path)
+    if (page) page.readOnly = readOnly
   }
 }

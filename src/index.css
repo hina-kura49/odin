@@ -140,6 +140,22 @@ body {
   }
 }
 
+/* 通知(デザイン 7)。warning は琥珀色、info は控えめな色 */
+.notice {
+  background: color-mix(in srgb, var(--warning) 10%, var(--panel));
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--panel));
+}
+.notice .notice-icon {
+  background: var(--warning);
+}
+.notice[data-tone='info'] {
+  background: var(--panel);
+  border-color: var(--border);
+}
+.notice[data-tone='info'] .notice-icon {
+  background: var(--accent);
+}
+
 /* ホバーと選択中の背景色の変化 */
 .hover-fade {
   transition:
@@ -455,6 +471,14 @@ html {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+.odin-editor .image-unavailable {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 .odin-editor .image-caption {
   display: block;

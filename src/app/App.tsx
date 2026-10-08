@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { backend } from '@/backend'
 import { useShortcut } from '@/lib/keyboard'
 import { useApp } from '@/store/app'
 import { PageView } from './PageView'
@@ -11,9 +12,14 @@ export function App() {
   const openVault = useApp((s) => s.openVault)
   const toggleSidebar = useApp((s) => s.toggleSidebar)
 
+  const handleExternalChange = useApp((s) => s.handleExternalChange)
+
   useEffect(() => {
     void init()
   }, [init])
+
+  // 他のアプリでの変更: ツリーを取り直し、開いているページの version を比べる
+  useEffect(() => backend().onExternalChange(() => void handleExternalChange()), [handleExternalChange])
 
   useShortcut({ key: '\\', mod: true }, toggleSidebar)
 

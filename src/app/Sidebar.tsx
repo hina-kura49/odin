@@ -1,4 +1,4 @@
-import { ChevronRight, ChevronsLeft, CircleArrowDown, FileText, Folder, FolderOpen, Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, ChevronsLeft, CircleArrowDown, FileText, Folder, FolderOpen, Plus } from 'lucide-react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useMemo, useRef, useState } from 'react'
 import type { TreeNode } from '@/backend'
@@ -37,7 +37,6 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
       <nav className="flex flex-col gap-0.5 px-2 pt-1">
         <NavItem icon={<FileText size={16} />} label="すべてのページ" />
         <NavItem icon={<CircleArrowDown size={16} />} label="クイックキャプチャ" />
-        <NavItem icon={<Trash2 size={16} />} label="ゴミ箱" />
       </nav>
 
       <button

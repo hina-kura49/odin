@@ -7,6 +7,7 @@ import { Decoration, DecorationSet, type EditorView } from '@milkdown/kit/prose/
 import { $prose, $view } from '@milkdown/kit/utils'
 import type { ElementContent, RootContent } from 'hast'
 import { common, createLowlight } from 'lowlight'
+import { backend } from '@/backend'
 
 // ---- コードの色付け ----
 // 文書と同時に(同期的に)計算するので、ページを開いた最初の描画から色が付いている。
@@ -104,8 +105,16 @@ function rememberSize(src: string, img: HTMLImageElement): void {
   }
 }
 
+/** 画像の相対パスを解決するための、いま表示しているページ */
+let imagePagePath = ''
+export const setImagePagePath = (path: string) => {
+  imagePagePath = path
+}
+
 export const imageView = $view(imageSchema.node, () => (node) => {
   const src = String(node.attrs.src)
+  // 表示用の URL はバックエンドが決める。保管庫の外を指す画像は表示しない(null)。文書の src は変えない
+  const url = backend().assetUrl(imagePagePath, src)
   const alt = String(node.attrs.alt ?? '')
   const dom = document.createElement('span')
   dom.className = 'image-block'
@@ -122,8 +131,15 @@ export const imageView = $view(imageSchema.node, () => (node) => {
   img.alt = alt
   img.decoding = 'async'
   img.addEventListener('load', () => rememberSize(src, img))
-  img.src = src
-  frame.append(img)
+  if (url !== null) {
+    img.src = url
+    frame.append(img)
+  } else {
+    const note = document.createElement('span')
+    note.className = 'image-unavailable'
+    note.textContent = '保管庫の外にある画像は表示できません'
+    frame.append(note)
+  }
   dom.append(frame)
 
   if (alt) {
