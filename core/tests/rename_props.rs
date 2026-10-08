@@ -1,0 +1,138 @@
+//! 段階4の性質テスト(proptest)
+
+mod common;
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
+
+use common::*;
+use proptest::prelude::*;
+
+/// vault 内のすべてのファイルの中身(フォルダは空の中身として記録する)。
+fn snapshot(root: &Path) -> BTreeMap<String, Vec<u8>> {
+    all_entries(root)
+        .into_iter()
+        .map(|rel| {
+            let bytes = if rel.ends_with('/') {
+                Vec::new()
+            } else {
+                fs::read(root.join(&rel)).unwrap()
+            };
+            (rel, bytes)
+        })
+        .collect()
+}
+
+/// ページ本文の断片。リンクの行き先だけが、名前を変えるページの名前に依存する。
+#[derive(Debug, Clone)]
+enum Piece {
+    /// 名前を変えるページへのリンク(書き換わる)
+    Link,
+    /// その子ページへのリンク(書き換わる)
+    ChildLink,
+    /// 見出しつきのリンク(書き換わる)
+    LinkWithFragment,
+    /// インラインコードの中のリンク風の文字列(書き換わらない)
+    InlineCode,
+    /// コードブロックの中のリンク風の文字列(書き換わらない)
+    Fenced,
+    /// 別のページへのリンク(書き換わらない)
+    OtherLink,
+    /// リンクではないファイル名(書き換わらない)
+    PlainName,
+    Text(String),
+}
+
+impl Piece {
+    /// `up` はそのページからルートへの前置き、`name` は名前を変えるページの今のタイトル。
+    fn render(&self, up: &str, name: &str) -> String {
+        match self {
+            Piece::Link => format!("[リンク]({up}{name}.md)"),
+            Piece::ChildLink => format!("[子へ]({up}{name}/c.md)"),
+            Piece::LinkWithFragment => format!("[見出し]({up}{name}.md#議題)"),
+            Piece::InlineCode => format!("`[コード]({up}a.md)`"),
+            Piece::Fenced => format!("\n```\n[例]({up}a.md)\n```\n"),
+            Piece::OtherLink => format!("[別]({up}x.md)"),
+            Piece::PlainName => "a.md".to_string(),
+            Piece::Text(s) => s.clone(),
+        }
+    }
+}
+
+type Body = Vec<(Piece, &'static str)>;
+
+fn body() -> impl Strategy<Value = Body> {
+    let piece = prop_oneof![
+        Just(Piece::Link),
+        Just(Piece::ChildLink),
+        Just(Piece::LinkWithFragment),
+        Just(Piece::InlineCode),
+        Just(Piece::Fenced),
+        Just(Piece::OtherLink),
+        Just(Piece::PlainName),
+        "[あ-んA-Za-z ]{0,6}".prop_map(Piece::Text),
+    ];
+    let sep = prop_oneof![Just(" "), Just("\n"), Just("\r\n"), Just("")];
+    prop::collection::vec((piece, sep), 0..8)
+}
+
+fn render(body: &Body, up: &str, name: &str) -> String {
+    body.iter()
+        .map(|(p, sep)| format!("{}{sep}", p.render(up, name)))
+        .collect()
+}
+
+const NEW_TITLE: &str = "新[ぁ-んa-z0-9]{0,8}";
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(48))]
+
+    /// rename の後、他のページはリンクの行き先だけが新しい名前に変わり、ほかは1バイトも変わらない。
+    #[test]
+    fn rename_changes_only_link_destinations(
+        root_body in body(),
+        nested_body in body(),
+        new_title in NEW_TITLE,
+    ) {
+        let v = VaultBuilder::new()
+            .file("a.md", "")
+            .file("a/c.md", "")
+            .file("x.md", render(&root_body, "", "a"))
+            .file("y/z.md", render(&nested_body, "../", "a"))
+            .open();
+
+        v.rename_page("a.md", &new_title).unwrap();
+
+        prop_assert_eq!(
+            String::from_utf8(v.disk_bytes("x.md")).unwrap(),
+            render(&root_body, "", &new_title)
+        );
+        prop_assert_eq!(
+            String::from_utf8(v.disk_bytes("y/z.md")).unwrap(),
+            render(&nested_body, "../", &new_title)
+        );
+    }
+
+    /// rename してから元の名前に戻すと、vault のすべてのファイルがバイト単位で元通りになる。
+    #[test]
+    fn rename_and_back_restores_every_file(
+        root_body in body(),
+        nested_body in body(),
+        child_body in body(),
+        new_title in NEW_TITLE,
+    ) {
+        let v = VaultBuilder::new()
+            .file("a.md", "名前を変えるページ")
+            .file("a/c.md", render(&child_body, "../", "a"))
+            .file("x.md", render(&root_body, "", "a"))
+            .file("y/z.md", render(&nested_body, "../", "a"))
+            .open();
+        let before = snapshot(&v.root());
+
+        let meta = v.rename_page("a.md", &new_title).unwrap();
+        v.rename_page(&meta.path, "a").unwrap();
+
+        prop_assert_eq!(snapshot(&v.root()), before);
+    }
+}

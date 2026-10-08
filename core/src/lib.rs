@@ -143,4 +143,11 @@ impl Vault {
         let _ = path;
         todo!()
     }
+
+    /// ファイル名を変え、子フォルダがあれば一緒に変え、vault 内の他のページからのリンクを書き換える。
+    /// リンク以外の本文は1バイトも変えない。
+    pub fn rename_page(&self, path: &str, new_title: &str) -> Result<PageMeta> {
+        let _ = (path, new_title);
+        todo!()
+    }
 }
