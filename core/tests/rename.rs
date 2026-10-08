@@ -750,6 +750,105 @@ fn rename_page_rewrites_only_changed_links_in_child_pages() {
     );
 }
 
+// ---------------------------------------------------------------- 表示文字列のエスケープ(回答33の追加)
+
+#[test]
+fn rename_page_treats_escaped_link_text_as_equal_to_old_title() {
+    let v = VaultBuilder::new()
+        .file("[重要] メモ.md", "")
+        .file("other.md", "[\\[重要\\] メモ]([重要]%20メモ.md)")
+        .open();
+
+    rename(&v, "[重要] メモ.md", "b");
+
+    assert_eq!(text(&v, "other.md"), "[b](b.md)");
+}
+
+#[test]
+fn rename_page_treats_unneeded_escapes_in_link_text_as_equal() {
+    let v = VaultBuilder::new()
+        .file("メモ!.md", "")
+        .file("other.md", "[メモ\\!](メモ!.md)")
+        .open();
+
+    rename(&v, "メモ!.md", "b");
+
+    assert_eq!(text(&v, "other.md"), "[b](b.md)");
+}
+
+#[test]
+fn rename_page_treats_unescaped_intraword_underscore_text_as_equal() {
+    let v = VaultBuilder::new()
+        .file("a_b.md", "")
+        .file("other.md", "[a_b](a_b.md)")
+        .open();
+
+    rename(&v, "a_b.md", "c");
+
+    assert_eq!(text(&v, "other.md"), "[c](c.md)");
+}
+
+#[test]
+fn rename_page_escapes_markdown_characters_of_new_title_in_link_text() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[a](a.md)")
+        .open();
+
+    rename(&v, "a.md", "x*y_z`w<v&u[t]s");
+
+    assert_eq!(
+        text(&v, "other.md"),
+        "[x\\*y\\_z\\`w\\<v\\&u\\[t\\]s](x*y_z`w%3Cv&u[t]s.md)"
+    );
+}
+
+#[test]
+fn rename_page_does_not_escape_other_characters_of_new_title() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[a](a.md)")
+        .open();
+
+    rename(&v, "a.md", "#1 (案)!~|ＡＢ");
+
+    assert_eq!(
+        text(&v, "other.md"),
+        "[#1 (案)!~|ＡＢ](%231%20%28案%29!~|ＡＢ.md)"
+    );
+}
+
+#[test]
+fn rename_page_keeps_link_text_with_emphasis() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[**a**](a.md) [*a*](a.md) [`a`](a.md)")
+        .open();
+
+    rename(&v, "a.md", "b");
+
+    assert_eq!(
+        text(&v, "other.md"),
+        "[**a**](b.md) [*a*](b.md) [`a`](b.md)"
+    );
+}
+
+#[test]
+fn escaped_new_title_reads_back_as_the_new_title() {
+    let title = "[重要] a*b_c`d<e&f &amp; g";
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[a](a.md)")
+        .open();
+
+    rename(&v, "a.md", title);
+
+    assert_eq!(
+        links_in(&text(&v, "other.md")),
+        [(title.to_string(), format!("{title}.md"))]
+    );
+}
+
 // ================================================================ 新しいタイトルの処理と重なり(回答35)
 
 #[test]
@@ -1022,6 +1121,58 @@ fn rename_page_does_not_wrap_new_name_in_angle_brackets() {
     rename(&v, "a.md", "b c");
 
     assert_eq!(text(&v, "other.md"), "[x](b%20c/c.md)");
+}
+
+#[test]
+fn rename_page_percent_encodes_fullwidth_space_in_new_name() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[x](a.md)")
+        .open();
+
+    rename(&v, "a.md", "定例\u{3000}会議");
+
+    assert_eq!(text(&v, "other.md"), "[x](定例%E3%80%80会議.md)");
+}
+
+#[test]
+fn rename_page_percent_encodes_every_unicode_space_in_new_name() {
+    // U+00A0(改行しない空白)、U+2003(全角幅の空白)
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[x](a.md)")
+        .open();
+
+    rename(&v, "a.md", "a\u{A0}b\u{2003}c");
+
+    assert_eq!(text(&v, "other.md"), "[x](a%C2%A0b%E2%80%83c.md)");
+}
+
+#[test]
+fn rename_page_percent_encodes_fullwidth_space_inside_angle_brackets_too() {
+    let v = VaultBuilder::new()
+        .file("a.md", "")
+        .file("other.md", "[x](<a.md>)")
+        .open();
+
+    rename(&v, "a.md", "定例\u{3000}会議");
+
+    assert_eq!(text(&v, "other.md"), "[x](<定例%E3%80%80会議.md>)");
+}
+
+#[test]
+fn rename_page_resolves_link_with_fullwidth_space_encoded_or_not() {
+    let v = VaultBuilder::new()
+        .file("定例\u{3000}会議.md", "")
+        .file(
+            "other.md",
+            "[x](定例\u{3000}会議.md) [y](定例%E3%80%80会議.md)",
+        )
+        .open();
+
+    rename(&v, "定例\u{3000}会議.md", "b");
+
+    assert_eq!(text(&v, "other.md"), "[x](b.md) [y](b.md)");
 }
 
 // ================================================================ 画像・参照形式・HTML(回答38)

@@ -374,3 +374,44 @@ impl TestVault {
             .as_millis() as u64
     }
 }
+
+/// Markdown として解釈し、リンクごとに(表示文字列, パーセントデコードした行き先)を返す。
+pub fn links_in(markdown: &str) -> Vec<(String, String)> {
+    use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+    let mut out = Vec::new();
+    let mut current: Option<(String, String)> = None;
+    for event in Parser::new(markdown) {
+        match event {
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                current = Some((String::new(), percent_decode(&dest_url)))
+            }
+            Event::Text(t) | Event::Code(t) => {
+                if let Some((text, _)) = current.as_mut() {
+                    text.push_str(&t);
+                }
+            }
+            Event::End(TagEnd::Link) => out.extend(current.take()),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// `%XX` をバイトに戻す(テスト用の素朴な実装)。
+pub fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(b) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(out).unwrap()
+}
