@@ -1,0 +1,21 @@
+[package]
+# `core` という名前は Rust 標準の `core` クレートと衝突するため、パッケージ名は odin-core にしている。
+name = "odin-core"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+proptest = "1"
+unicode-normalization = "0.1"
+xattr = "1"
+unicode-segmentation = "1"
+pulldown-cmark = { version = "0.13", default-features = false }
+
+[[bench]]
+name = "large_vault"
+harness = false
