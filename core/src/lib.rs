@@ -69,7 +69,19 @@ pub struct TreeNode {
 pub struct SearchHit {
     pub path: String,
     pub title: String,
-    pub snippet: String,
+    pub snippet: Snippet,
+}
+
+/// 検索結果に添える本文の抜粋。強調の記号は入れない。
+/// - `hit`: 本文で最初に現れる一致箇所(本文の元の表記のまま)。
+/// - `before`: 一致の直前の最大30文字。全体(before + hit + after)は最大120文字。文字は書記素で数える。
+/// - 改行と連続する空白は半角の空白1つにまとめ、切り詰めた側にだけ「…」を付ける(文字数に含めない)。
+/// - タイトルだけに一致したときは、`before` と `hit` が空で、`after` に本文の先頭を入れる。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Snippet {
+    pub before: String,
+    pub hit: String,
+    pub after: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,13 +163,15 @@ impl Vault {
         todo!()
     }
 
-    /// タイトルと本文から探す。タイトルに一致したページを、本文だけに一致したページより上位にする。
-    pub fn search(&self, query: &str) -> Result<Vec<SearchHit>> {
-        let _ = query;
+    /// タイトルと本文(ファイルの全文)から探し、並び順の上位 `limit` 件を返す。
+    /// 比較は NFKC にそろえ、英字の大文字小文字を区別しない。空白で区切った語はすべてを含むページを探す。
+    /// 並び順: タイトル一致 > 本文だけの一致、同じ順位では modified_at の新しい順、次に path 順。
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>> {
+        let _ = (query, limit);
         todo!()
     }
 
-    /// 更新日時(modified_at)の新しい順に、最大 `limit` 件を返す。
+    /// 更新日時(modified_at)の新しい順(同じなら path 順)に、最大 `limit` 件を返す。
     pub fn recent_pages(&self, limit: usize) -> Result<Vec<PageMeta>> {
         let _ = limit;
         todo!()
@@ -165,6 +179,18 @@ impl Vault {
 
     /// vault のファイルから索引を作り直す。
     pub fn rebuild_index(&self) -> Result<()> {
+        todo!()
+    }
+
+    /// アプリの外での追加・変更・削除を、list_tree・search・recent_pages に反映する。
+    /// 大きさと mtime が同じで中身だけ違う変更は見逃してよい(rebuild_index では反映される)。
+    pub fn rescan(&self) -> Result<()> {
+        todo!()
+    }
+
+    /// vault 直下の `Inbox.md` の末尾に、空行を挟んで追記する。なければ作る。
+    pub fn capture_to_inbox(&self, text: &str) -> Result<()> {
+        let _ = text;
         todo!()
     }
 }

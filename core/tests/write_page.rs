@@ -741,6 +741,7 @@ fn leftover_temp_file_does_not_affect_list_tree() {
     let expected = v.list_tree().unwrap();
     v.write_outside_app(&format!("{P}1"), "途中");
     v.write_outside_app(&format!("a/{P}2"), "途中");
+    v.rescan().unwrap();
 
     assert_eq!(v.list_tree().unwrap(), expected);
 }

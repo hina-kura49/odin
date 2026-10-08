@@ -365,9 +365,10 @@ fn list_tree_includes_empty_files() {
 }
 
 #[test]
-fn list_tree_reflects_files_added_outside_the_app_after_open() {
+fn list_tree_reflects_files_added_outside_the_app_after_rescan() {
     let v = VaultBuilder::new().file("a.md", "").open();
     v.write_outside_app("b.md", "");
+    v.rescan().unwrap();
 
     assert_eq!(
         all_paths(&v.list_tree().unwrap()),

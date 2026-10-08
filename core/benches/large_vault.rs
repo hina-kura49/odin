@@ -83,12 +83,12 @@ fn main() {
 
     // 2文字以上の日本語で、ほぼ全ページに一致する語。
     let took = measure(|| {
-        vault.search("東京").unwrap();
+        vault.search("東京", 50).unwrap();
     });
     report("search(東京、多数一致)", took, Duration::from_millis(50));
 
     let took = measure(|| {
-        vault.search("会議メモ").unwrap();
+        vault.search("会議メモ", 50).unwrap();
     });
     report(
         "search(会議メモ、多数一致)",
