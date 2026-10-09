@@ -114,8 +114,11 @@ pub struct SystemTrash;
 
 impl Trash for SystemTrash {
     fn trash(&self, path: &Path) -> std::io::Result<()> {
-        let _ = path;
-        todo!()
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        // Finder を使う方法は、アプリに「Finder の操作の許可」を求めてしまうので使わない。
+        let mut context = trash::TrashContext::default();
+        context.set_delete_method(DeleteMethod::NsFileManager);
+        context.delete(path).map_err(std::io::Error::other)
     }
 }
 
@@ -262,8 +265,71 @@ impl Vault {
     /// ページなら子はそれと同名のフォルダの中に、Folder ならそのフォルダの中に作る。
     /// 新しいページの中身は空(0バイト)。
     pub fn create_page(&self, parent: Option<&str>, title: &str) -> Result<PageMeta> {
-        let _ = (parent, title);
-        todo!()
+        let mut index = self.lock();
+
+        // 新しいページを置くフォルダ(ディスク上の名前)と、作る必要があるか。
+        let (dir, create_dir): (Vec<String>, bool) = match parent {
+            None => (Vec::new(), false),
+            Some(parent) => {
+                let located = locate(&self.root, parent)?;
+                match located.kind {
+                    Kind::Page => {
+                        // ページの子は、ページと同じ名前のフォルダに置く。
+                        let parent_dir = self.root.join(located.parent().join("/"));
+                        let folder = stem(located.name()).to_string();
+                        let mut dir = located.parent().to_vec();
+                        match find_entry(&parent_dir, &folder)? {
+                            Some((name, file_type)) if file_type.is_dir() => {
+                                dir.push(name);
+                                (dir, false)
+                            }
+                            // フォルダを作る場所に、フォルダでないものがある(回答32)。
+                            Some((name, _)) => return Err(Error::NameOccupied(nfc(&name))),
+                            None => {
+                                dir.push(folder);
+                                (dir, true)
+                            }
+                        }
+                    }
+                    // ページを含むフォルダだけが Folder の節点(回答15・24)。
+                    Kind::Dir if disk::has_pages(&self.root, &located.disk_rel())? => {
+                        (located.segments, false)
+                    }
+                    Kind::Dir | Kind::Other => return Err(Error::NotAPage(parent.to_string())),
+                }
+            }
+        };
+
+        let dir_rel = dir.join("/");
+        let dir_abs = self.root.join(&dir_rel);
+        if create_dir {
+            fs::create_dir(&dir_abs)?;
+        }
+
+        let result = (|| {
+            let title = self.free_title(&dir_abs, &process_title(title), create_dir)?;
+            let name = format!("{title}.md");
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(dir_abs.join(&name))?;
+            Ok(if dir_rel.is_empty() {
+                name
+            } else {
+                format!("{dir_rel}/{name}")
+            })
+        })();
+        let disk_rel = match result {
+            Ok(disk_rel) => disk_rel,
+            Err(e) => {
+                if create_dir {
+                    let _ = fs::remove_dir(&dir_abs);
+                }
+                return Err(e);
+            }
+        };
+        index.refresh(&self.root, &disk_rel)?;
+        self.page_meta(&mut index, &disk_rel)
     }
 
     /// 同じフォルダのページと重ならないタイトル。重なれば「 2」から順に、空いている最小の番号を付ける(回答28)。
@@ -288,8 +354,34 @@ impl Vault {
     /// 子フォルダ(中身を問わない)を先に、ページを後にゴミ箱へ移す。元に戻す処理はしない。
     /// その結果、親のフォルダが空になったら、ルートを除いて上へ順に削除する。
     pub fn delete_page(&self, path: &str) -> Result<()> {
-        let _ = path;
-        todo!()
+        let mut index = self.lock();
+        let page = locate_page(&self.root, path)?;
+        let parent_abs = self.root.join(page.parent().join("/"));
+
+        // 子フォルダ(回答23)。シンボリックリンクはたどらない。
+        if let Some((folder, file_type)) = find_entry(&parent_abs, stem(page.name()))?
+            && file_type.is_dir()
+        {
+            self.trash.trash(&parent_abs.join(&folder))?;
+            let mut folder_rel = page.parent().to_vec();
+            folder_rel.push(folder);
+            index.remove_dir(&folder_rel.join("/"));
+        }
+
+        self.trash.trash(&self.root.join(page.disk_rel()))?;
+        index.remove(&page.disk_rel());
+
+        // 空になった親フォルダを、ルートの手前まで上へ順に削除する(回答25)。
+        let mut dir = page.parent().to_vec();
+        while !dir.is_empty() {
+            let abs = self.root.join(dir.join("/"));
+            if fs::read_dir(&abs)?.next().is_some() {
+                break;
+            }
+            fs::remove_dir(&abs)?;
+            dir.pop();
+        }
+        Ok(())
     }
 
     /// ファイル名を変え、子フォルダがあれば一緒に変え、vault 内の他のページからのリンクを書き換える。
