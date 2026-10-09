@@ -232,8 +232,30 @@ impl Vault {
     /// ディスク上の現在の内容の version が `base_version` と異なれば `Conflict` を返し、
     /// ファイルを変更しない。書き込みは一時ファイルに書いてから rename する。
     pub fn write_page(&self, path: &str, content: &str, base_version: &str) -> Result<WriteResult> {
-        let _ = (path, content, base_version);
-        todo!()
+        let mut index = self.lock();
+        let page = locate_page(&self.root, path)?;
+        let abs = self.root.join(page.disk_rel());
+
+        let meta = read_meta(&abs, path)?;
+        let current = read_bytes(&abs, path)?;
+        // UTF-8 でないページには、base_version によらず書かない(回答19)。
+        if std::str::from_utf8(&current).is_err() {
+            return Err(Error::NotUtf8(path.to_string()));
+        }
+        if version_of(&current) != base_version {
+            return Ok(WriteResult::Conflict);
+        }
+        if meta.permissions().readonly() {
+            return Err(Error::ReadOnly(path.to_string()));
+        }
+
+        if current != content.as_bytes() {
+            disk::replace_file(&abs, content.as_bytes(), Some(&meta))?;
+            index.refresh(&self.root, &page.disk_rel())?;
+        }
+        Ok(WriteResult::Ok {
+            version: version_of(content.as_bytes()),
+        })
     }
 
     /// `parent` はページの path か Folder の節点の path。
