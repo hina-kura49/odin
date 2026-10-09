@@ -5,6 +5,7 @@
 
 mod disk;
 mod index;
+mod links;
 mod names;
 mod search;
 
@@ -387,8 +388,133 @@ impl Vault {
     /// ファイル名を変え、子フォルダがあれば一緒に変え、vault 内の他のページからのリンクを書き換える。
     /// リンク以外の本文は1バイトも変えない。
     pub fn rename_page(&self, path: &str, new_title: &str) -> Result<PageMeta> {
-        let _ = (path, new_title);
-        todo!()
+        let mut index = self.lock();
+        let page = locate_page(&self.root, path)?;
+        let old_name = page.name().to_string();
+        let old_stem = stem(&old_name).to_string();
+        let new_title = process_title(new_title);
+
+        // まったく同じ名前なら、何も変えない(回答43)。
+        if nfc(&old_stem) == new_title {
+            return self.page_meta(&mut index, &page.disk_rel());
+        }
+
+        let parent = page.parent().to_vec();
+        let parent_abs = self.root.join(parent.join("/"));
+        let new_name = format!("{new_title}.md");
+
+        // 新しい名前のページがあれば、番号を付けずにエラーにする(回答35)。大文字小文字だけの変更は除く。
+        if key(&new_name) != key(&old_name) && find_entry(&parent_abs, &new_name)?.is_some() {
+            return Err(Error::NameOccupied(new_title));
+        }
+        let folder = match find_entry(&parent_abs, &old_stem)? {
+            Some((name, file_type)) if file_type.is_dir() => Some(name),
+            _ => None,
+        };
+        // 子フォルダがあるときは、新しい名前のフォルダの場所が空いていなければならない。
+        if folder.is_some()
+            && key(&new_title) != key(&old_stem)
+            && find_entry(&parent_abs, &new_title)?.is_some()
+        {
+            return Err(Error::NameOccupied(new_title));
+        }
+
+        let target = links::Target {
+            parent: parent.iter().map(|s| key(s)).collect(),
+            page: key(&old_name),
+            folder: folder.as_deref().map(key),
+            old_title: nfc(&old_stem),
+            new_title: new_title.clone(),
+        };
+
+        // 書き換えが要るページを集める。読み取り専用のものがあれば、何も変えずにエラーにする(回答39)。
+        let mut pages = Vec::new();
+        disk::walk_pages(&self.root, "", false, &mut pages)?;
+        let mut rewrites = Vec::new();
+        for (rel, meta) in pages {
+            let Ok(content) = String::from_utf8(fs::read(self.root.join(&rel))?) else {
+                continue;
+            };
+            let base: Vec<String> = rel.split('/').map(key).collect();
+            let Some(new_content) = links::rewrite(&content, &base[..base.len() - 1], &target)
+            else {
+                continue;
+            };
+            if meta.permissions().readonly() {
+                return Err(Error::ReadOnly(nfc(&rel)));
+            }
+            rewrites.push((rel, meta, new_content));
+        }
+
+        // 1. 書き換えた中身を、それぞれのページと同じフォルダの一時ファイルに書く。
+        let mut temps = Vec::new();
+        for (rel, meta, new_content) in &rewrites {
+            match disk::write_temp(&self.root.join(rel), new_content.as_bytes(), Some(meta)) {
+                Ok(temp) => temps.push((rel.clone(), temp)),
+                Err(e) => {
+                    remove_all(temps.iter().map(|(_, t)| t.clone()));
+                    return Err(e.into());
+                }
+            }
+        }
+
+        // 2. 子フォルダとページの名前を変える。失敗したら元に戻す(回答41)。
+        let old_folder_abs = folder.as_ref().map(|f| parent_abs.join(f));
+        let new_folder_abs = parent_abs.join(&new_title);
+        if let Some(old_folder_abs) = &old_folder_abs
+            && let Err(e) = fs::rename(old_folder_abs, &new_folder_abs)
+        {
+            remove_all(temps.iter().map(|(_, t)| t.clone()));
+            return Err(e.into());
+        }
+        if let Err(e) = fs::rename(parent_abs.join(&old_name), parent_abs.join(&new_name)) {
+            if let Some(old_folder_abs) = &old_folder_abs {
+                let _ = fs::rename(&new_folder_abs, old_folder_abs);
+            }
+            remove_all(
+                temps
+                    .iter()
+                    .map(|(_, t)| moved(t, old_folder_abs.as_deref(), &new_folder_abs)),
+            );
+            return Err(e.into());
+        }
+
+        // 3. 一時ファイルで、書き換えたページを置き換える。
+        let old_page_rel = page.disk_rel();
+        let old_folder_rel = folder.as_ref().map(|f| join_rel(&parent, f));
+        let new_page_rel = join_rel(&parent, &new_name);
+        let new_folder_rel = join_rel(&parent, &new_title);
+        let mut first_error = None;
+        for (rel, temp) in &temps {
+            let final_rel = if *rel == old_page_rel {
+                new_page_rel.clone()
+            } else {
+                match &old_folder_rel {
+                    Some(old) if rel.starts_with(&format!("{old}/")) => {
+                        format!("{new_folder_rel}{}", &rel[old.len()..])
+                    }
+                    _ => rel.clone(),
+                }
+            };
+            let temp = moved(temp, old_folder_abs.as_deref(), &new_folder_abs);
+            if let Err(e) = fs::rename(&temp, self.root.join(&final_rel)) {
+                let _ = fs::remove_file(&temp);
+                first_error.get_or_insert(e);
+            }
+            index.refresh(&self.root, &final_rel)?;
+        }
+
+        // 索引を新しい名前に合わせる。
+        index.remove(&old_page_rel);
+        if let Some(old) = &old_folder_rel {
+            index.remove_dir(old);
+            index.refresh_dir(&self.root, &new_folder_rel)?;
+        }
+        index.refresh(&self.root, &new_page_rel)?;
+        if let Some(e) = first_error {
+            return Err(e.into());
+        }
+        self.page_meta(&mut index, &new_page_rel)
     }
 
     /// タイトルと本文(ファイルの全文)から探し、並び順の上位 `limit` 件を返す。
