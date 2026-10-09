@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "tauri": "tauri",
-    "app": "tauri dev"
+    "app": "tauri dev",
+    "app:core": "VITE_BACKEND=tauri tauri dev --features core",
+    "gen:types": "cd src-tauri && cargo test --features core export_bindings"
   },
   "dependencies": {
     "@milkdown/kit": "^7.22.2",

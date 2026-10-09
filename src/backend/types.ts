@@ -13,12 +13,19 @@
 /** captureToInbox の書き込み先。バックエンドが保管庫の直下に作る */
 export const INBOX_PATH = 'Inbox.md'
 
-export type NodeKind = 'page' | 'folder'
-export type TreeNode = { path: string; title: string; kind: NodeKind; children: TreeNode[] }
+// 契約の型のうち、Rust の型から作ったもの(src/backend/generated/。npm run gen:types で作り直す)と形が一致するものは、それをそのまま使う。
+// titleMatched: タイトルに検索語が当たったか。パレットの「ページ」と「本文の検索結果」の振り分けはこの値だけで行う
+import type { SearchHit } from './generated/SearchHit'
+import type { TreeNode } from './generated/TreeNode'
+export type { NodeKind } from './generated/NodeKind'
+export type { Snippet } from './generated/Snippet'
+export type { SearchHit, TreeNode }
+
+// 次の3つは、Rust から作った型と契約の形が違う(報告済み。決まるまで契約のままにし、TauriBackend の境目で変換する)
+// - PageMeta.modifiedAt: 生成では bigint(Rust の u64)。JSON では数値で届く
+// - WriteResult: 生成では { status: "ok", version } | { status: "conflict" }
+// - BackendErrorKind: 生成(ErrorKind)には core の IndexOverlapsVault に当たる "indexOverlapsVault" がある。届いたら 'io' として扱う
 export type PageMeta = { path: string; title: string; modifiedAt: number } // UNIX時刻のミリ秒
-export type Snippet = { before: string; hit: string; after: string }
-/** titleMatched: タイトルに検索語が当たったか。パレットの「ページ」と「本文の検索結果」の振り分けはこの値だけで行う */
-export type SearchHit = { path: string; title: string; titleMatched: boolean; snippet: Snippet }
 export type WriteResult = { ok: true; version: string } | { ok: false; reason: 'conflict' }
 export type BackendErrorKind = 'notFound' | 'invalidPath' | 'notAPage' | 'notUtf8' | 'readOnly' | 'nameOccupied' | 'io'
 

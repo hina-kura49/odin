@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { setBackend } from '@/backend'
+import { BackendError, setBackend } from '@/backend'
 import { MockBackend } from '@/backend/mock'
 import { countPages, findParentFolder, firstPage, useApp } from '../app'
 
@@ -138,5 +138,47 @@ describe('開くページがないとき', () => {
     useApp.setState(initialState, true)
     await useApp.getState().init()
     expect(useApp.getState().page?.path).toBe(firstPage(useApp.getState().tree))
+  })
+})
+
+describe('保管庫の選び直し', () => {
+  it('未保存の変更を保存してから選び直し、前の保管庫のページを残さない', async () => {
+    const m = new MockBackend()
+    setBackend(m)
+    useApp.setState(initialState, true)
+    await useApp.getState().init()
+    expect(useApp.getState().page).not.toBeNull()
+    const order: string[] = []
+    vi.spyOn(m, 'openVault').mockImplementation(async () => {
+      order.push('open')
+      expect(useApp.getState().page).not.toBeNull()
+      return '/別の保管庫'
+    })
+    vi.spyOn(m, 'listTree').mockResolvedValue([])
+    vi.spyOn(m, 'recentPages').mockResolvedValue([])
+    await useApp.getState().openVault()
+    expect(order).toEqual(['open'])
+    expect(useApp.getState()).toMatchObject({ status: 'ready', page: null, tree: [], cache: {} })
+  })
+
+  it('キャンセルしたら、いまの保管庫のまま', async () => {
+    const m = new MockBackend()
+    setBackend(m)
+    useApp.setState(initialState, true)
+    await useApp.getState().init()
+    const page = useApp.getState().page
+    vi.spyOn(m, 'openVault').mockResolvedValue(null)
+    await useApp.getState().openVault()
+    expect(useApp.getState().page).toBe(page)
+  })
+})
+
+describe('ツリーを取り直せなかったとき', () => {
+  it('外部の変更で取り直せなくても、投げずに通知し、いまのツリーを残す', async () => {
+    const tree = useApp.getState().tree
+    vi.spyOn(mock, 'listTree').mockRejectedValueOnce(new BackendError('io', 'not yet implemented'))
+    await useApp.getState().handleExternalChange()
+    expect(useApp.getState().tree).toBe(tree)
+    expect(useApp.getState().notice).toMatchObject({ tone: 'warning', title: 'ページの一覧を読み直せませんでした' })
   })
 })

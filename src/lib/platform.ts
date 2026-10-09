@@ -15,6 +15,7 @@ export function hideCurrentWindow(): void {
 // Rust 側(src-tauri/src/lib.rs)との取り決め
 const HIDE_REQUESTED_EVENT = 'app:hide-requested'
 const QUIT_REQUESTED_EVENT = 'app:quit-requested'
+const OPEN_VAULT_REQUESTED_EVENT = 'app:open-vault-requested'
 
 type Lifecycle = {
   /** 未保存の変更を保存し終える */
@@ -58,6 +59,11 @@ export function watchAppLifecycle({ save, hasUnsaved }: Lifecycle): () => void {
     )
   }
   return () => disposers.forEach((d) => d())
+}
+
+/** メニューの「保管庫を開く…」を選んだとき。ブラウザでは何もしない。返り値は解除関数 */
+export function onOpenVaultRequested(handler: () => Promise<void>): () => void {
+  return isTauri ? subscribe(OPEN_VAULT_REQUESTED_EVENT, handler) : () => {}
 }
 
 /** クイックキャプチャのホットキーを登録できなかったか。登録できていれば(ブラウザでも) false */

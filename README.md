@@ -60,11 +60,16 @@ __mock.setReadOnly(path, true)             // ファイルを読み取り専用�
 Rust（`cargo`）が必要です。
 
 ```sh
-npm run app      # tauri dev。開発用サーバーを起動し、アプリのウィンドウを開く
+npm run app        # MockBackend で動かす(core はビルドしない)
+npm run app:core   # core/ につないで動かす(VITE_BACKEND=tauri と Cargo の機能 core を付ける)
+npm run gen:types  # Rust の型から TypeScript の型を作り直す(src/backend/generated/)
 ```
 
 - `npm run app` は開発用サーバー（5173）も自分で起動します。`npm run dev` がすでに動いているときは、先に止めてください（ポートがぶつかります）。止めずに使うときは `npx tauri dev --config '{"build":{"beforeDevCommand":""}}'` で、動いているサーバーをそのまま使えます。アプリが起動している間も、ブラウザで http://localhost:5173 を開けます。
-- アプリの中でも、いまは MockBackend で動きます（`core/` にはまだつないでいません）。`VITE_BACKEND=tauri` を付けて起動したときだけ TauriBackend を使います。
+- `npm run app` では、アプリの中でも MockBackend で動きます。core はビルドしないので、core を編集している途中でも起動できます。
+- `npm run app:core` では、TauriBackend から `src-tauri/src/vault.rs` のコマンドを通して core の `Vault` を呼びます。core の関数がまだ未実装（`todo!()`）のあいだは、操作がエラーになり、通知や初回起動の画面で受け止めます。
+- 最後に開いた保管庫の場所（`settings.json`）と、索引用のフォルダ（`index/<フォルダ名>-<場所から作った番号>/`）は、アプリのデータ用フォルダ（`~/Library/Application Support/app.odin.notes/`）に置きます。保管庫の中には何も作りません。
+- 保管庫を選び直すときは、メニューの「ファイル」→「保管庫を開く…」を使います。
 - Mock はウィンドウごとに別のメモリを持つので、クイックキャプチャのウィンドウはメインのウィンドウの Mock に取り込みを頼みます（`src/backend/mock-relay.ts`）。取り込むと、メインのウィンドウに変更が伝わり、Inbox を開いていれば読み直されます。
 - クイックキャプチャのホットキーは `src/capture/shortcut.json` の1か所で決めています。Rust 側の登録も、画面の表示も、このファイルから読みます。`⌃Space` は macOS の入力ソースの切り替えと重なるので使いません。
 
@@ -94,7 +99,7 @@ src/
   capture/   クイックキャプチャのウィンドウ
   main.tsx   入口（URL の ?window=capture でクイックキャプチャの画面に振り分ける）
   index.css  共通のスタイル
-src-tauri/   Tauri のアプリの殻（ウィンドウ、グローバルホットキー）
+src-tauri/   Tauri のアプリの殻（ウィンドウ、グローバルホットキー、メニュー、core とのつなぎ）
 core/        Rust のバックエンド
 ```
 
@@ -105,7 +110,8 @@ core/        Rust のバックエンド
 - `types.ts`：バックエンドとの契約です。`Backend` インターフェースと、やりとりする型（`TreeNode`、`PageMeta`、`WriteResult` など）、エラーの型 `BackendError` を決めています。`version` は受け取った値をそのまま次の `writePage` に渡す、`path` は加工しない、知らないエラーの種類が来ても落ちない、といった約束もここに書いてあります。
 - `mock.ts`：MockBackend。メモリの中だけで動き、ブラウザ単体で使えます。
 - `mock-data.ts`、`mock-samples.ts`：Mock の最初のデータと、表示の確認用のページです。
-- `tauri.ts`：TauriBackend。Tauri の `invoke`（Rust の関数の呼び出し）とイベントを呼ぶだけの薄い層です。Rust 側との取り決め（コマンド名、エラーの形、`external-change` イベントなど）の案がファイルの先頭にあります。
+- `tauri.ts`：TauriBackend。Tauri の `invoke`（Rust の関数の呼び出し）とイベントを呼ぶだけの薄い層です。Rust 側との取り決め（コマンド名、エラーの形、`external-change` イベントなど）がファイルの先頭にあります。
+- `generated/`：Rust の型（`src-tauri/src/ipc.rs`）から ts-rs（Rust の型から TypeScript の型を作る道具）で作った型です。手で直さず、`npm run gen:types` で作り直します。契約と形が一致する型（`TreeNode`、`NodeKind`、`Snippet`、`SearchHit`）は、`types.ts` がこれをそのまま使います。一致しない型（`PageMeta` の `modifiedAt`、`WriteResult`、エラーの種類）は、`tauri.ts` で契約の形に変えます。
 - `mock-relay.ts`：Tauri のアプリを Mock のまま動かすときに、クイックキャプチャのウィンドウからメインのウィンドウの Mock へ取り込みを中継します。
 - `index.ts`：どのバックエンドを使うかを決め、`backend()` で返します。テスト用の `setBackend()` もあります。
 
@@ -152,6 +158,14 @@ Milkdown を使った Markdown のエディタです。
 - `platform.ts`：ウィンドウを隠す・アプリを終了するときの保存など、Tauri とブラウザの違いを吸収します。
 - `motion.ts`、`presence.ts`、`flip-rows.ts`：アニメーションの共通処理です。
 - `cn.ts`：CSS のクラス名をまとめる小さな関数です。
+
+### `src-tauri`
+
+- `src/lib.rs`：ウィンドウ、メニュー、グローバルホットキー、閉じる・終了するときの流れです。
+- `src/vault.rs`：契約の各操作に対応するコマンドです。core の `Vault` を呼ぶだけで、ロジックは書きません。呼び出しは別のスレッドで行い、画面と入力を止めません。core が panic（未実装の `todo!()` など）しても、アプリは落とさずにエラーとして返します。保管庫のフォルダの監視もここです（変更を 300ms まとめてから `rescan` を呼び、`external-change` を出します。core の一時ファイルと隠しファイルの変更は除きます）。
+- `src/ipc.rs`：フロントとの境界を越える型と、core のエラーの種類の対応づけです。core の型の欄はすべて名指しで取り出すので、core に欄が増えるとコンパイルが通らなくなります。
+- `build.rs`：core の `Error` は `#[non_exhaustive]`（ほかのクレートからは種類を数えきれない印）なので、コンパイラは種類が増えても知らせてくれません。そこで、core のソースと `ipc.rs` の対応づけを突き合わせ、食い違えばビルドを止めます。
+- core につなぐコードは、Cargo の機能 `core` を付けたときだけビルドします。
 
 ### `core`
 

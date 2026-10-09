@@ -121,16 +121,27 @@ export const useApp = create<AppState>()((set, get) => ({
 
   async openVault() {
     try {
+      // 選び直す前に、いまの保管庫の未保存の変更を保存し終える
+      await flushActive()
       const vault = await backend().openVault()
-      if (vault !== null) await get().init()
+      if (vault === null) return
+      // 前の保管庫のページを残さない
+      get().closePage()
+      set({ tree: [], recent: [], cache: {}, selectedPath: null })
+      await get().init()
     } catch (e) {
       get().showNotice({ tone: 'warning', title: 'フォルダを開けませんでした', body: toBackendError(e).message, actions: [] })
     }
   },
 
   async refreshTree() {
-    const [tree, recent] = await Promise.all([backend().listTree(), backend().recentPages(RECENT_LIMIT)])
-    set({ tree, recent })
+    // 失敗しても投げない(呼ぶ側の操作そのものは済んでいる)。いまのツリーを残して知らせる
+    try {
+      const [tree, recent] = await Promise.all([backend().listTree(), backend().recentPages(RECENT_LIMIT)])
+      set({ tree, recent })
+    } catch (e) {
+      get().showNotice({ tone: 'warning', title: 'ページの一覧を読み直せませんでした', body: toBackendError(e).message, actions: [] })
+    }
   },
 
   async openPage(path) {
@@ -163,6 +174,7 @@ export const useApp = create<AppState>()((set, get) => ({
     void backend()
       .recentPages(RECENT_LIMIT)
       .then((recent) => set({ recent }))
+      .catch(() => {})
   },
 
   async openInbox() {

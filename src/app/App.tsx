@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { backend } from '@/backend'
 import { activeSession, flushActive } from '@/editor/registry'
 import { useShortcut } from '@/lib/keyboard'
-import { captureShortcutFailed, watchAppLifecycle } from '@/lib/platform'
+import { captureShortcutFailed, onOpenVaultRequested, watchAppLifecycle } from '@/lib/platform'
 import { useApp } from '@/store/app'
 import { CommandPalette } from './CommandPalette'
 import { FirstLaunch } from './FirstLaunch'
@@ -24,6 +24,9 @@ export function App() {
 
   // 隠す・終了する・後ろに回る前に、未保存の変更を保存する
   useEffect(() => watchAppLifecycle({ save: flushActive, hasUnsaved: () => activeSession()?.isDirty() ?? false }), [])
+
+  // メニューの「保管庫を開く…」
+  useEffect(() => onOpenVaultRequested(() => useApp.getState().openVault()), [])
 
   // クイックキャプチャのホットキーを登録できなかったら知らせる(アプリはそのまま使える)
   useEffect(() => {

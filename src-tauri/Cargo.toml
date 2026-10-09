@@ -1,7 +1,7 @@
 [package]
 name = "odin-app"
 version = "0.1.0"
-description = "Odin のデスクトップアプリ(Tauri 2)。いまはフロントエンドを MockBackend のまま動かす殻で、core/ にはまだつないでいない"
+description = "Odin のデスクトップアプリ(Tauri 2)。core/ の Vault をフロントエンドにつなぐ"
 edition = "2021"
 publish = false
 
@@ -13,7 +13,18 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = ["macos-private-api", "protocol-asset"] }
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# core/ は読むだけ(変更しない)。パッケージ名は odin-core
+odin-core = { path = "../core", optional = true }
+# 保管庫のフォルダの監視
+notify = { version = "8", optional = true }
+# Rust の型から TypeScript の型を作る(cargo test --features core で src/backend/generated/ に書き出す)
+ts-rs = { version = "12", optional = true }
+
+[features]
+# core/ につなぐ(npm run app:core)。付けないときは core をビルドしない(MockBackend で動かすときに、core の編集途中の状態に左右されない)
+core = ["dep:odin-core", "dep:notify", "dep:ts-rs"]

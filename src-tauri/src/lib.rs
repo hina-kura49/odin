@@ -1,9 +1,15 @@
 //! Odin のデスクトップアプリの殻。
-//! いまはフロントエンドを MockBackend のまま動かす。core/ はまだつながない。
+//! フロントエンドは、VITE_BACKEND=tauri のときだけ core/ につなぐ(vault.rs のコマンド)。それ以外は MockBackend のまま動く。
+//! core につなぐコードは、Cargo の機能 `core` を付けたときだけビルドする(npm run app:core)。
 //!
 //! ウィンドウは2つ(tauri.conf.json):
 //! - main: ノートの画面。閉じても隠すだけで、アプリは動き続ける(Dock のアイコンで出し直す。終了は ⌘Q)
 //! - capture: クイックキャプチャ。起動時に隠して作っておき、グローバルホットキーで出す(出すときに読み込みを待たせない)
+
+#[cfg(feature = "core")]
+mod ipc;
+#[cfg(feature = "core")]
+mod vault;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -18,6 +24,10 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 const MAIN_LABEL: &str = "main";
 const CAPTURE_LABEL: &str = "capture";
 const QUIT_MENU_ID: &str = "quit";
+const OPEN_VAULT_MENU_ID: &str = "open-vault";
+
+/// メニューの「保管庫を開く…」。フロントが openVault を呼ぶ(Mock でも本物でも同じ流れにする)
+const OPEN_VAULT_REQUESTED_EVENT: &str = "app:open-vault-requested";
 
 /// 終了の前に、メインのウィンドウに未保存の変更を保存し終えてもらうためのイベント(フロントは finish_quit で答える)
 const QUIT_REQUESTED_EVENT: &str = "app:quit-requested";
@@ -103,8 +113,9 @@ fn toggle_capture(app: &AppHandle) {
     let _ = window.set_focus();
 }
 
-/// Tauri の既定のメニューから、終了だけを自前の項目に替えたもの。
-/// 既定の「終了」は macOS がその場でアプリを終えるので、保存を待てない。
+/// Tauri の既定のメニューを日本語にし、次の2つを替えたもの。
+/// - 終了: 既定の「終了」は macOS がその場でアプリを終えるので、保存を待てない。自前の項目にする
+/// - 「保管庫を開く…」を足す
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let name = app.package_info().name.clone();
     let about = AboutMetadata {
@@ -113,6 +124,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         ..Default::default()
     };
     let quit = MenuItem::with_id(app, QUIT_MENU_ID, format!("{name} を終了"), true, Some("CmdOrCtrl+Q"))?;
+    let open_vault = MenuItem::with_id(app, OPEN_VAULT_MENU_ID, "保管庫を開く…", true, None::<&str>)?;
     Menu::with_items(
         app,
         &[
@@ -121,45 +133,80 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                 &name,
                 true,
                 &[
-                    &PredefinedMenuItem::about(app, None, Some(about))?,
+                    &PredefinedMenuItem::about(app, Some(&format!("{name} について")), Some(about))?,
                     &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::services(app, None)?,
+                    &PredefinedMenuItem::services(app, Some("サービス"))?,
                     &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::hide(app, None)?,
-                    &PredefinedMenuItem::hide_others(app, None)?,
+                    &PredefinedMenuItem::hide(app, Some(&format!("{name} を隠す")))?,
+                    &PredefinedMenuItem::hide_others(app, Some("ほかを隠す"))?,
+                    &PredefinedMenuItem::show_all(app, Some("すべてを表示"))?,
                     &PredefinedMenuItem::separator(app)?,
                     &quit,
                 ],
             )?,
-            &Submenu::with_items(app, "File", true, &[&PredefinedMenuItem::close_window(app, None)?])?,
             &Submenu::with_items(
                 app,
-                "Edit",
+                "ファイル",
                 true,
                 &[
-                    &PredefinedMenuItem::undo(app, None)?,
-                    &PredefinedMenuItem::redo(app, None)?,
+                    &open_vault,
                     &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::cut(app, None)?,
-                    &PredefinedMenuItem::copy(app, None)?,
-                    &PredefinedMenuItem::paste(app, None)?,
-                    &PredefinedMenuItem::select_all(app, None)?,
+                    &PredefinedMenuItem::close_window(app, Some("ウインドウを閉じる"))?,
                 ],
             )?,
-            &Submenu::with_items(app, "View", true, &[&PredefinedMenuItem::fullscreen(app, None)?])?,
             &Submenu::with_items(
                 app,
-                "Window",
+                "編集",
                 true,
                 &[
-                    &PredefinedMenuItem::minimize(app, None)?,
-                    &PredefinedMenuItem::maximize(app, None)?,
+                    &PredefinedMenuItem::undo(app, Some("取り消す"))?,
+                    &PredefinedMenuItem::redo(app, Some("やり直す"))?,
                     &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::close_window(app, None)?,
+                    &PredefinedMenuItem::cut(app, Some("カット"))?,
+                    &PredefinedMenuItem::copy(app, Some("コピー"))?,
+                    &PredefinedMenuItem::paste(app, Some("ペースト"))?,
+                    &PredefinedMenuItem::select_all(app, Some("すべてを選択"))?,
+                ],
+            )?,
+            &Submenu::with_items(app, "表示", true, &[&PredefinedMenuItem::fullscreen(app, Some("フルスクリーンにする"))?])?,
+            &Submenu::with_items(
+                app,
+                "ウインドウ",
+                true,
+                &[
+                    &PredefinedMenuItem::minimize(app, Some("しまう"))?,
+                    &PredefinedMenuItem::maximize(app, Some("拡大/縮小"))?,
+                    &PredefinedMenuItem::separator(app)?,
+                    &PredefinedMenuItem::close_window(app, Some("閉じる"))?,
                 ],
             )?,
         ],
     )
+}
+
+/// フロントから呼べるコマンド。core のコマンドは、機能 `core` を付けたときだけ
+#[cfg(feature = "core")]
+fn invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        capture_shortcut_error,
+        finish_quit,
+        vault::current_vault,
+        vault::open_vault,
+        vault::list_tree,
+        vault::read_page,
+        vault::write_page,
+        vault::create_page,
+        vault::rename_page,
+        vault::delete_page,
+        vault::search,
+        vault::recent_pages,
+        vault::capture_to_inbox,
+    ]
+}
+
+#[cfg(not(feature = "core"))]
+fn invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![capture_shortcut_error, finish_quit]
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -167,8 +214,12 @@ pub fn run() {
     let shortcut: CaptureShortcut = serde_json::from_str(CAPTURE_SHORTCUT_JSON)
         .expect("src/capture/shortcut.json の形が正しくありません");
 
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(feature = "core")]
+    let builder = builder.manage(vault::VaultState::default());
+    let app = builder
         .manage(AppState::default())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
@@ -178,11 +229,14 @@ pub fn run() {
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![capture_shortcut_error, finish_quit])
+        .invoke_handler(invoke_handler())
         .menu(build_menu)
         .on_menu_event(|app, event| {
             if event.id() == QUIT_MENU_ID {
                 request_quit(app);
+            } else if event.id() == OPEN_VAULT_MENU_ID {
+                show_main(app);
+                let _ = app.emit_to(MAIN_LABEL, OPEN_VAULT_REQUESTED_EVENT, ());
             }
         })
         .setup(move |app| {
