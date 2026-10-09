@@ -70,6 +70,8 @@ pub struct SearchHit {
     pub path: String,
     pub title: String,
     pub snippet: Snippet,
+    /// 回答61の「タイトル一致」(検索語のすべてがタイトルに含まれる)のとき true、それ以外は false。
+    pub title_matched: bool,
 }
 
 /// 検索結果に添える本文の抜粋。強調の記号は入れない。

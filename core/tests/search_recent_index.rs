@@ -495,6 +495,134 @@ fn search_orders_ties_by_natural_path_order() {
     assert_eq!(hit_paths(&v, "合言葉"), ["p1.md", "P2.md", "p10.md"]);
 }
 
+// ================================================================ search: title_matched(回答61)
+
+/// 検索結果の (path, title_matched) を、並び順のまま返す。
+fn hit_title_matched(v: &Vault, query: &str) -> Vec<(String, bool)> {
+    search(v, query)
+        .into_iter()
+        .map(|h| (h.path, h.title_matched))
+        .collect()
+}
+
+#[test]
+fn title_matched_is_true_when_word_is_in_title() {
+    let v = VaultBuilder::new().file("週次会議.md", "").open();
+    assert_eq!(
+        hit_title_matched(&v, "会議"),
+        [("週次会議.md".into(), true)]
+    );
+}
+
+#[test]
+fn title_matched_is_false_when_word_is_only_in_body() {
+    let v = VaultBuilder::new().file("メモ.md", "定例の会議").open();
+    assert_eq!(hit_title_matched(&v, "会議"), [("メモ.md".into(), false)]);
+}
+
+#[test]
+fn title_matched_is_true_when_word_is_in_both_title_and_body() {
+    let v = VaultBuilder::new().file("会議.md", "会議の内容").open();
+    assert_eq!(hit_title_matched(&v, "会議"), [("会議.md".into(), true)]);
+}
+
+#[test]
+fn title_matched_is_true_only_when_title_has_every_word() {
+    let v = VaultBuilder::new()
+        .file("会議と議事録.md", "")
+        .file("会議.md", "議事録の内容")
+        .file("x.md", "会議の議事録")
+        .mtime("会議と議事録.md", t(1_500_000_000))
+        .mtime("会議.md", t(1_700_000_000))
+        .mtime("x.md", t(1_600_000_000))
+        .open();
+
+    assert_eq!(
+        hit_title_matched(&v, "会議 議事録"),
+        [
+            ("会議と議事録.md".into(), true),
+            ("会議.md".into(), false),
+            ("x.md".into(), false),
+        ]
+    );
+}
+
+#[test]
+fn title_matched_is_false_when_title_has_every_word_only_together_with_body() {
+    // 「会議」はタイトルに、「議事録」は本文にだけある。
+    let v = VaultBuilder::new().file("会議.md", "議事録").open();
+    assert_eq!(
+        hit_title_matched(&v, "会議 議事録"),
+        [("会議.md".into(), false)]
+    );
+}
+
+#[test]
+fn title_matched_ignores_case() {
+    let v = VaultBuilder::new().file("RUST入門.md", "").open();
+    assert_eq!(
+        hit_title_matched(&v, "rust"),
+        [("RUST入門.md".into(), true)]
+    );
+}
+
+#[test]
+fn title_matched_treats_fullwidth_alphanumerics_in_title_as_halfwidth() {
+    let v = VaultBuilder::new().file("ＡＢＣ１２３.md", "").open();
+    assert_eq!(
+        hit_title_matched(&v, "abc123"),
+        [("ＡＢＣ１２３.md".into(), true)]
+    );
+}
+
+#[test]
+fn title_matched_is_true_for_nfd_title_found_by_nfc_query() {
+    let v = VaultBuilder::new().file(&nfd("ばんごう.md"), "").open();
+    assert_eq!(
+        hit_title_matched(&v, &nfc("ばんごう")),
+        [(nfc("ばんごう.md"), true)]
+    );
+}
+
+#[test]
+fn title_matched_does_not_change_ranking() {
+    let v = VaultBuilder::new()
+        .file("b1.md", "会議 会議 会議")
+        .file("b2.md", "会議")
+        .file("会議録.md", "")
+        .file("x/定例会議.md", "本文にも会議")
+        .mtime("b1.md", t(1_900_000_000))
+        .mtime("b2.md", t(1_800_000_000))
+        .mtime("会議録.md", t(1_600_000_000))
+        .mtime("x/定例会議.md", t(1_500_000_000))
+        .open();
+
+    assert_eq!(
+        hit_title_matched(&v, "会議"),
+        [
+            ("会議録.md".into(), true),
+            ("x/定例会議.md".into(), true),
+            ("b1.md".into(), false),
+            ("b2.md".into(), false),
+        ]
+    );
+}
+
+#[test]
+fn title_matched_is_kept_when_limit_cuts_results() {
+    let v = VaultBuilder::new()
+        .file("会議録.md", "")
+        .file("b.md", "会議")
+        .open();
+
+    let hits = v.search("会議", 1).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(
+        (hits[0].path.as_str(), hits[0].title_matched),
+        ("会議録.md", true)
+    );
+}
+
 // ================================================================ search: limit(回答53)
 
 #[test]

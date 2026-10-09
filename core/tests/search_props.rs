@@ -112,4 +112,32 @@ proptest! {
 
         prop_assert_eq!(observe(&v), before);
     }
+
+    /// title_matched は「すべての語がタイトルに含まれる」ときだけ true で、
+    /// 結果の並びでは true のものが false のものより必ず前にある(並び順の規則は変わらない)。
+    #[test]
+    fn title_matched_means_every_word_is_in_title_and_comes_first(
+        pages in prop::collection::vec(("[ぁ-んa-zA-Z]{1,6}", "[ぁ-んa-zA-Z]{0,30}"), 1..8),
+        w1 in "[ぁ-えa-c]{1,2}", w2 in "[ぁ-えa-c]{1,2}",
+    ) {
+        let mut b = VaultBuilder::new();
+        let mut titles = std::collections::BTreeMap::new();
+        for (i, (title, body)) in pages.iter().enumerate() {
+            // 大文字小文字だけが違う名前がぶつからないよう、番号を付ける。
+            let title = format!("{title}{i}");
+            b = b.file(&format!("{title}.md"), body);
+            titles.insert(format!("{title}.md"), title);
+        }
+        let v = b.open();
+
+        let hits = v.search(&format!("{w1} {w2}"), 1000).unwrap();
+
+        for h in &hits {
+            let title = titles[&h.path].to_lowercase();
+            let expected = title.contains(&w1.to_lowercase()) && title.contains(&w2.to_lowercase());
+            prop_assert_eq!(h.title_matched, expected, "{:?}", h);
+        }
+        let flags: Vec<bool> = hits.iter().map(|h| h.title_matched).collect();
+        prop_assert!(flags.windows(2).all(|w| w[0] || !w[1]), "{:?}", flags);
+    }
 }
