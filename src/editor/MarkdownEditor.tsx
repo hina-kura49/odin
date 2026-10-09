@@ -5,7 +5,6 @@ import { Plugin } from '@milkdown/kit/prose/state'
 import { EditorState, Selection } from '@milkdown/kit/prose/state'
 import { $prose } from '@milkdown/kit/utils'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { onWindowClose } from '@/lib/platform'
 import { configureMarkdown } from './markdown'
 import { EditorOverlays } from './EditorOverlays'
 import { extraKeys } from './keys'
@@ -103,9 +102,6 @@ export function MarkdownEditor({ path, loadId, content, version, onReady }: Prop
       void (session?.flush() ?? Promise.resolve()).finally(() => void created?.destroy())
     }
   }, [bridge])
-
-  // ウィンドウを閉じる時に保存する
-  useEffect(() => onWindowClose(() => sessionRef.current?.flush() ?? Promise.resolve()), [])
 
   // 描画の前に、解析済みの文書へ一度に差し替える。生の Markdown や書式が後から当たる様子は見えない
   const key = `${path}\n${loadId}`

@@ -118,3 +118,14 @@ describe('ツリーとの連携', () => {
     expect(findParentFolder(tree, 'Inbox.md')).toBeNull()
   })
 })
+
+describe('クイックキャプチャのホットキー', () => {
+  it('登録できなかったことを、既存の通知で知らせる', () => {
+    useApp.getState().warnCaptureShortcut()
+    expect(useApp.getState().notice).toMatchObject({
+      tone: 'warning',
+      title: '⌃⌥Space はほかのアプリが使っているため、クイックキャプチャのショートカットを登録できませんでした',
+      actions: [],
+    })
+  })
+})

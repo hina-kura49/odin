@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { backend } from '@/backend'
+import { activeSession, flushActive } from '@/editor/registry'
 import { useShortcut } from '@/lib/keyboard'
+import { captureShortcutFailed, watchAppLifecycle } from '@/lib/platform'
 import { useApp } from '@/store/app'
 import { CommandPalette } from './CommandPalette'
 import { openPalette, togglePalette } from './palette-store'
@@ -19,6 +21,16 @@ export function App() {
   useEffect(() => {
     void init()
   }, [init])
+
+  // 隠す・終了する・後ろに回る前に、未保存の変更を保存する
+  useEffect(() => watchAppLifecycle({ save: flushActive, hasUnsaved: () => activeSession()?.isDirty() ?? false }), [])
+
+  // クイックキャプチャのホットキーを登録できなかったら知らせる(アプリはそのまま使える)
+  useEffect(() => {
+    void captureShortcutFailed()
+      .then((failed) => failed && useApp.getState().warnCaptureShortcut())
+      .catch(() => {})
+  }, [])
 
   // 他のアプリでの変更: ツリーを取り直し、開いているページの version を比べる
   useEffect(() => backend().onExternalChange(() => void handleExternalChange()), [handleExternalChange])

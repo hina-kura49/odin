@@ -59,6 +59,8 @@ type AppState = {
   /** 新規ページを作って開き、タイトルを選んだ状態にする。sibling: 開いているページと同じフォルダ / child: 子ページ / folder: 指定のフォルダ */
   newPage(where: 'sibling' | 'child' | { folder: string | null }): Promise<void>
   focusTitle(path: string, select?: boolean): void
+  /** クイックキャプチャのホットキーを登録できなかったことを知らせる */
+  warnCaptureShortcut(): void
   showNotice(notice: Omit<Notice, 'id'>): void
   dismissNotice(id?: number): void
   toggleSidebar(): void
@@ -153,6 +155,14 @@ export const useApp = create<AppState>()((set, get) => ({
       tone: 'info',
       title: 'Inbox はまだありません',
       body: `クイックキャプチャ(${CAPTURE_SHORTCUT.label})でメモを取り込むと作られます。`,
+      actions: [],
+    })
+  },
+
+  warnCaptureShortcut() {
+    get().showNotice({
+      tone: 'warning',
+      title: `${CAPTURE_SHORTCUT.label} はほかのアプリが使っているため、クイックキャプチャのショートカットを登録できませんでした`,
       actions: [],
     })
   },
