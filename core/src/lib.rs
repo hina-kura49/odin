@@ -1,9 +1,20 @@
 //! メモアプリのバックエンドの中核。Tauri に依存しない。
-//!
-//! この段階ではテストをコンパイルさせるための骨組みだけを置いている。
-//! 関数の本体はすべて `todo!()` で、実装は担当者が書く。
 
+// 後の段階の操作で使う部品もまだ入っているので、この段階では「使われていない」警告を出さない。
+#![allow(dead_code, unused_imports)]
+
+mod disk;
+mod index;
+mod names;
+mod search;
+
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
+
+use disk::{Kind, find_entry, locate, locate_page};
+use index::Index;
+use names::{key, nfc, process_title, stem};
 
 /// write_page が使う一時ファイルの名前の接頭辞。`.` で始まり、一時ファイルの名前は `.md` で終わらない。
 /// open のときに、この接頭辞で始まる残った一時ファイルを vault 全体から削除する。
@@ -113,6 +124,14 @@ pub struct Vault {
     root: PathBuf,
     // ページを消すときに使うゴミ箱。
     trash: Box<dyn Trash>,
+    // ページの一覧と本文。ページを変える操作は、この鍵を持っている間に行う。
+    index: Mutex<Index>,
+}
+
+impl Drop for Vault {
+    fn drop(&mut self) {
+        self.lock().save();
+    }
 }
 
 impl Vault {
@@ -124,26 +143,65 @@ impl Vault {
 
     /// ゴミ箱の処理を差し替えて開く。それ以外は`open`と同じ。
     pub fn open_with_trash(root: &Path, index_dir: &Path, trash: Box<dyn Trash>) -> Result<Vault> {
-        // index_dirハステップ１２で使う。今は使わない。
-        let _ = index_dir;
-
         // rootがフォルダでなければエラーにする。
         if !root.is_dir() {
             return Err(Error::NotFound(root.display().to_string()));
         }
 
+        // vault と index_dir を、シンボリックリンクを解決した絶対パスにしてから比べる。
+        let resolved_root = resolve_path(root)?;
+        let resolved_index = resolve_path(index_dir)?;
+
+        // どちらかがもう一方の中にある（同じ場合も含む）なら、重なっているのでエラーにする。
+        // 何かを作る前に調べるので、エラーのときは何も作られない。
+        if resolved_index.starts_with(&resolved_root) || resolved_root.starts_with(&resolved_index)
+        {
+            return Err(Error::IndexOverlapsVault(index_dir.display().to_string()));
+        }
+
+        // index_dir がなければ、途中のフォルダも含めて作る。
+        std::fs::create_dir_all(index_dir)?;
+
+        // 保存してある索引を読み、ディスクと突き合わせる。残った一時ファイルはここで消す。
+        let mut index = Index::load(index_dir);
+        index.scan(root, false, true)?;
+        index.save();
+
         Ok(Vault {
             root: root.to_path_buf(),
             trash,
+            index: Mutex::new(index),
         })
     }
 
+    fn lock(&self) -> MutexGuard<'_, Index> {
+        // 途中で panic した操作があっても、索引はディスクと突き合わせれば直せるので使い続ける。
+        self.index.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// 索引の中のページの情報。無ければディスクから作る。
+    fn page_meta(&self, index: &mut Index, disk_rel: &str) -> Result<PageMeta> {
+        if let Some(meta) = index.meta(disk_rel) {
+            return Ok(meta);
+        }
+        index.refresh(&self.root, disk_rel)?;
+        index
+            .meta(disk_rel)
+            .ok_or_else(|| Error::NotFound(nfc(disk_rel)))
+    }
+
     pub fn list_tree(&self) -> Result<Vec<TreeNode>> {
-        todo!()
+        Ok(self.lock().list_tree())
     }
     /// 内容と version を返す。version は内容のハッシュに基づく不透明な文字列。
     pub fn read_page(&self, path: &str) -> Result<(String, String)> {
         // vaultのフォルダとpathをつなげて、ファイルの場所を作る。
+        // パスの書き方が正しいかを先に調べる。だめならここで終わる。
+        validate_path(path)?;
+
+        // ページとして読んで良いものかを調べる。
+        check_is_page(&self.root, path)?;
+
         let full_path = self.root.join(path);
 
         // ファイルを読んで、バイト列(Vec<u8>)として受け取る。
@@ -158,14 +216,15 @@ impl Vault {
             Err(e) => return Err(Error::Io(e)),
         };
 
+        // 中身のバイト列から version を作る
+        // from_utf8 が bytes を使い切る前に作っておく。
+        let version = version_of(&bytes);
+
         // バイト列を文字列にする。UTF-8として読めなければNotUtf8にする。
         let content = match String::from_utf8(bytes) {
             Ok(content) => content,
             Err(_) => return Err(Error::NotUtf8(path.to_string())),
         };
-
-        // versionはステップ４で作る。今は仮に空にしておく。
-        let version = String::new();
 
         Ok((content, version))
     }
@@ -183,6 +242,25 @@ impl Vault {
     pub fn create_page(&self, parent: Option<&str>, title: &str) -> Result<PageMeta> {
         let _ = (parent, title);
         todo!()
+    }
+
+    /// 同じフォルダのページと重ならないタイトル。重なれば「 2」から順に、空いている最小の番号を付ける(回答28)。
+    fn free_title(&self, dir: &Path, title: &str, dir_is_new: bool) -> Result<String> {
+        let taken: std::collections::HashSet<String> = if dir_is_new {
+            Default::default()
+        } else {
+            fs::read_dir(dir)?
+                .filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .map(|name| key(&name))
+                .collect()
+        };
+        let mut candidate = title.to_string();
+        let mut n = 2;
+        while taken.contains(&key(&format!("{candidate}.md"))) {
+            candidate = format!("{title} {n}");
+            n += 1;
+        }
+        Ok(candidate)
     }
 
     /// 子フォルダ(中身を問わない)を先に、ページを後にゴミ箱へ移す。元に戻す処理はしない。
@@ -221,12 +299,222 @@ impl Vault {
     /// アプリの外での追加・変更・削除を、list_tree・search・recent_pages に反映する。
     /// 大きさと mtime が同じで中身だけ違う変更は見逃してよい(rebuild_index では反映される)。
     pub fn rescan(&self) -> Result<()> {
-        todo!()
+        let mut index = self.lock();
+        index.scan(&self.root, false, false)?;
+        index.save();
+        Ok(())
     }
 
     /// vault 直下の `Inbox.md` の末尾に、空行を挟んで追記する。なければ作る。
     pub fn capture_to_inbox(&self, text: &str) -> Result<()> {
         let _ = text;
         todo!()
+    }
+}
+
+/// Inbox のファイル名。
+const INBOX: &str = "Inbox.md";
+
+/// 既存の Inbox の中身に text を足した中身(手順 (c)〜(e))。
+fn append_to_inbox(existing: &str, text: &str) -> String {
+    // (c) ない、または0バイトなら「text + 改行」。
+    if existing.is_empty() {
+        return format!("{text}\n");
+    }
+    // (e) 最初に現れる改行が CRLF なら CRLF、それ以外は LF。
+    let newline = match existing.find('\n') {
+        Some(i) if existing[..i].ends_with('\r') => "\r\n",
+        _ => "\n",
+    };
+    // (d) 末尾の改行を数える(CRLF は1つ)。2個以上なら何も足さない。
+    let mut rest = existing;
+    let mut trailing = 0;
+    while trailing < 2 {
+        if let Some(r) = rest
+            .strip_suffix("\r\n")
+            .or_else(|| rest.strip_suffix('\n'))
+        {
+            rest = r;
+            trailing += 1;
+        } else {
+            break;
+        }
+    }
+    let separator = newline.repeat(2 - trailing);
+    format!("{existing}{separator}{text}{newline}")
+}
+
+/// ルートからの名前の並びに、名前を1つ足した相対パス。
+fn join_rel(dir: &[String], name: &str) -> String {
+    if dir.is_empty() {
+        name.to_string()
+    } else {
+        format!("{}/{name}", dir.join("/"))
+    }
+}
+
+/// 子フォルダの名前を変えた後の、一時ファイルの場所。
+fn moved(temp: &Path, old_folder: Option<&Path>, new_folder: &Path) -> PathBuf {
+    match old_folder.and_then(|old| temp.strip_prefix(old).ok()) {
+        Some(rest) => new_folder.join(rest),
+        None => temp.to_path_buf(),
+    }
+}
+
+/// 一時ファイルを消す(失敗は無視する)。
+fn remove_all(paths: impl Iterator<Item = PathBuf>) {
+    for path in paths {
+        let _ = fs::remove_file(path);
+    }
+}
+
+/// ファイルの情報を読む。無ければ NotFound。
+fn read_meta(abs: &Path, path: &str) -> Result<fs::Metadata> {
+    fs::symlink_metadata(abs).map_err(|e| not_found_or_io(e, path))
+}
+
+/// ファイルの中身を読む。無ければ NotFound。
+fn read_bytes(abs: &Path, path: &str) -> Result<Vec<u8>> {
+    fs::read(abs).map_err(|e| not_found_or_io(e, path))
+}
+
+fn not_found_or_io(e: std::io::Error, path: &str) -> Error {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        Error::NotFound(path.to_string())
+    } else {
+        Error::Io(e)
+    }
+}
+
+/// アプリから受け取ったパスが、決まった書き方になっているかを調べる。
+/// 正しければOk(())、だめならErr(Error::InvalidPath)を返す。
+fn validate_path(path: &str) -> Result<()> {
+    // だめだった時に返すエラーを、先に用意しておく。
+    let invalid = || Error::InvalidPath(path.to_string());
+
+    // 空のパスはだめ
+    if path.is_empty() {
+        return Err(invalid());
+    }
+
+    // 先頭が"/"はだめ。macOSの絶対パスは全て"/"で始まるので、絶対パスもここで弾ける。
+    if path.starts_with('/') {
+        return Err(invalid());
+    }
+
+    // 1文字ずつ見て、"\"と制御文字があればだめ。
+    for c in path.chars() {
+        if c == '\\' || c.is_control() {
+            return Err(invalid());
+        }
+    }
+
+    // "/"で区切った１つずつの部分（セグメント）を調べる。
+    for segment in path.split('/') {
+        // 空（「a//b.md」や末尾の「/」）、"."、".."はだめ。
+        if segment.is_empty() || segment == "." || segment == ".." {
+            return Err(invalid());
+        }
+    }
+
+    Ok(())
+}
+
+// パスが指すものがページかを調べる。
+// 隠しファイル、隠しフォルダの中、.md以外、フォルダ、シンボリックリンクはページではない。
+// みつからないときは何もしない（後で読む時にNotFoundになる）
+fn check_is_page(root: &Path, path: &str) -> Result<()> {
+    // ページではなかった時に返すエラーを先に用意しておく。
+    let not_a_page = || Error::NotAPage(path.to_string());
+
+    // 名前だけで決まることを先に調べる。
+    // "."
+    // "."で始まる部分があれば、隠しファイルか隠しフォルダの中なのでだめ。
+    for segment in path.split('/') {
+        if segment.starts_with(".") {
+            return Err(not_a_page());
+        }
+    }
+
+    // 拡張子が.mdでなければだめ。大文字小文字は問わない。（.MDでも良い）
+    if !path.to_lowercase().ends_with(".md") {
+        return Err(not_a_page());
+    }
+
+    // ディスクを vaultのフォルダから１段ずつ辿って、シンボリックリンクがないかを調べる。
+    let mut current = root.to_path_buf();
+    let mut is_file = false;
+    for segment in path.split('/') {
+        current.push(segment);
+
+        // symlink_metadata は、リンクの先ではなくリンクそのものの情報を返す。
+        let meta = match std::fs::symlink_metadata(&current) {
+            Ok(meta) => meta,
+            // 見つからなければ、ここでは判断しない。
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(Error::Io(e)),
+        };
+
+        // 途中のフォルダでも、最後のファイルでも、シンボリックならだめ。
+        if meta.file_type().is_symlink() {
+            return Err(not_a_page());
+        }
+
+        is_file = meta.is_file();
+    }
+
+    // 最後にたどり着いたものがファイルでなければ（"x.md"という名前のフォルダなど）だめ。
+    if !is_file {
+        return Err(not_a_page());
+    }
+
+    Ok(())
+}
+
+/// ファイルの中身（バイト列）から、 version を作る。
+/// 中身が１バイトでも違えば、別の version になる。
+fn version_of(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+
+    // 中身から SHA-256 のハッシュ(32バイト)を計算する。
+    let hash = Sha256::digest(bytes);
+
+    // 32バイトを、16進数の文字列(64文字)にする。
+    let mut text = String::new();
+    for byte in hash {
+        text.push_str(&format!("{:02x}", byte));
+    }
+    text
+}
+
+/// パスを、シンボリックリンクを解決した絶対パスにする。
+/// まだ存在しない部分があっても使えるように、存在する親までを解決して、残りを繋げ直す。
+fn resolve_path(path: &Path) -> Result<PathBuf> {
+    // 存在しない末尾の名前を、ここに集める（後ろから順に入る）。
+    let mut missing = Vec::new();
+    let mut current = path.to_path_buf();
+
+    loop {
+        match std::fs::canonicalize(&current) {
+            // 解決できたら、集めておいた名前を元の順に繋げ直して終わる。
+            Ok(resolved) => {
+                let mut result = resolved;
+                for name in missing.iter().rev() {
+                    result.push(name);
+                }
+                return Ok(result);
+            }
+            // 存在しなければ、末尾の名前を１つ外して、親で試し直す。
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let name = match current.file_name() {
+                    Some(name) => name.to_os_string(),
+                    // もう外せる名前がない（".."や空のパスなど）時は諦める。
+                    None => return Err(Error::Io(e)),
+                };
+                missing.push(name);
+                current.pop();
+            }
+            Err(e) => return Err(Error::Io(e)),
+        }
     }
 }
