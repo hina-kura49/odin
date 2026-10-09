@@ -521,19 +521,20 @@ impl Vault {
     /// 比較は NFKC にそろえ、英字の大文字小文字を区別しない。空白で区切った語はすべてを含むページを探す。
     /// 並び順: タイトル一致 > 本文だけの一致、同じ順位では modified_at の新しい順、次に path 順。
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>> {
-        let _ = (query, limit);
-        todo!()
+        Ok(self.lock().search(query, limit))
     }
 
     /// 更新日時(modified_at)の新しい順(同じなら path 順)に、最大 `limit` 件を返す。
     pub fn recent_pages(&self, limit: usize) -> Result<Vec<PageMeta>> {
-        let _ = limit;
-        todo!()
+        Ok(self.lock().recent_pages(limit))
     }
 
     /// vault のファイルから索引を作り直す。
     pub fn rebuild_index(&self) -> Result<()> {
-        todo!()
+        let mut index = self.lock();
+        index.scan(&self.root, true, false)?;
+        index.save();
+        Ok(())
     }
 
     /// アプリの外での追加・変更・削除を、list_tree・search・recent_pages に反映する。
