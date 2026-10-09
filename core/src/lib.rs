@@ -1,8 +1,5 @@
 //! メモアプリのバックエンドの中核。Tauri に依存しない。
 
-// 後の段階の操作で使う部品もまだ入っているので、この段階では「使われていない」警告を出さない。
-#![allow(dead_code, unused_imports)]
-
 mod disk;
 mod index;
 mod links;
@@ -548,8 +545,37 @@ impl Vault {
 
     /// vault 直下の `Inbox.md` の末尾に、空行を挟んで追記する。なければ作る。
     pub fn capture_to_inbox(&self, text: &str) -> Result<()> {
-        let _ = text;
-        todo!()
+        // (a) 前後の空白を取り除く。(b) 空なら何もしない。
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(());
+        }
+        let mut index = self.lock();
+
+        let (name, existing, meta) = match find_entry(&self.root, INBOX)? {
+            None => (INBOX.to_string(), Vec::new(), None),
+            Some((name, file_type)) => {
+                if !file_type.is_file() {
+                    return Err(Error::NotAPage(nfc(&name)));
+                }
+                let abs = self.root.join(&name);
+                let meta = read_meta(&abs, &name)?;
+                let existing = read_bytes(&abs, &name)?;
+                if std::str::from_utf8(&existing).is_err() {
+                    return Err(Error::NotUtf8(nfc(&name)));
+                }
+                if meta.permissions().readonly() {
+                    return Err(Error::ReadOnly(nfc(&name)));
+                }
+                (name, existing, Some(meta))
+            }
+        };
+
+        let existing = String::from_utf8(existing).expect("UTF-8 であることを確かめた");
+        let content = append_to_inbox(&existing, text);
+        disk::replace_file(&self.root.join(&name), content.as_bytes(), meta.as_ref())?;
+        index.refresh(&self.root, &name)?;
+        Ok(())
     }
 }
 
