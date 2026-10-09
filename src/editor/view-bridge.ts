@@ -39,6 +39,9 @@ export function createViewBridge(): ViewBridge {
       new Plugin({
         view: () => {
           window.addEventListener('mouseup', onMouseUp)
+          // ページを差し替える(updateState で新しい EditorState にする)と、プラグインの view は作り直され、update は呼ばれない。
+          // 作り直したときも伝える(空のページの案内などが、差し替えた文書で描き直されるように)
+          emit()
           return {
             update: emit,
             destroy: () => window.removeEventListener('mouseup', onMouseUp),

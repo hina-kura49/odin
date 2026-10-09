@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { setBackend } from '@/backend'
 import { MockBackend } from '@/backend/mock'
-import { countPages, findParentFolder, useApp } from '../app'
+import { countPages, findParentFolder, firstPage, useApp } from '../app'
 
 const initialState = useApp.getState()
 let mock: MockBackend
@@ -127,5 +127,16 @@ describe('クイックキャプチャのホットキー', () => {
       title: '⌃⌥Space はほかのアプリが使っているため、クイックキャプチャのショートカットを登録できませんでした',
       actions: [],
     })
+  })
+})
+
+describe('開くページがないとき', () => {
+  it('最近開いたページがなければ、ツリーの最初のページを開く', async () => {
+    const m = new MockBackend()
+    vi.spyOn(m, 'recentPages').mockResolvedValue([])
+    setBackend(m)
+    useApp.setState(initialState, true)
+    await useApp.getState().init()
+    expect(useApp.getState().page?.path).toBe(firstPage(useApp.getState().tree))
   })
 })

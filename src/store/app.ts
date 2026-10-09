@@ -96,20 +96,36 @@ export const useApp = create<AppState>()((set, get) => ({
   titleFocus: null,
 
   async init() {
-    const vault = await backend().currentVault()
-    if (vault === null) {
-      set({ status: 'no-vault' })
+    try {
+      const vault = await backend().currentVault()
+      if (vault === null) {
+        set({ status: 'no-vault' })
+        return
+      }
+      const [tree, recent] = await Promise.all([backend().listTree(), backend().recentPages(RECENT_LIMIT)])
+      set({ status: 'ready', tree, recent })
+    } catch (e) {
+      // 保管庫を読めない(フォルダが移動・削除された、権限がないなど)。初回起動の画面で、選び直すか、もう一度試してもらう
+      set({ status: 'no-vault', tree: [], recent: [] })
+      get().showNotice({
+        tone: 'warning',
+        title: '保管庫を開けませんでした',
+        body: toBackendError(e).message,
+        actions: [{ label: 'もう一度試す', run: () => get().init() }],
+      })
       return
     }
-    const [tree, recent] = await Promise.all([backend().listTree(), backend().recentPages(RECENT_LIMIT)])
-    set({ status: 'ready', tree, recent })
-    const first = recent[0]?.path
+    const first = get().recent[0]?.path ?? firstPage(get().tree)
     if (first) await get().openPage(first)
   },
 
   async openVault() {
-    const vault = await backend().openVault()
-    if (vault !== null) await get().init()
+    try {
+      const vault = await backend().openVault()
+      if (vault !== null) await get().init()
+    } catch (e) {
+      get().showNotice({ tone: 'warning', title: 'フォルダを開けませんでした', body: toBackendError(e).message, actions: [] })
+    }
   },
 
   async refreshTree() {
@@ -288,9 +304,9 @@ export const useApp = create<AppState>()((set, get) => ({
     set((s) => ({ cache: Object.fromEntries(Object.entries(s.cache).filter(([p]) => !gone.has(p))) }))
     await get().refreshTree()
     get().showNotice({ tone: 'info', title: 'ゴミ箱に移動しました', body: '元に戻すときは、Finder のゴミ箱から戻してください。', actions: [] })
-    // 開いていたページを消したら、本文を空にせず、最近開いたページを開く
-    const next = wasOpen ? get().recent.find((p) => !gone.has(p.path)) : undefined
-    if (next && !get().page) await get().openPage(next.path)
+    // 開いていたページを消したら、本文を空にせず、最近開いたページ(なければツリーの最初のページ)を開く
+    const next = wasOpen ? (get().recent.find((p) => !gone.has(p.path))?.path ?? firstPage(get().tree)) : null
+    if (next && !get().page) await get().openPage(next)
   },
 
   async requestDelete(path) {
@@ -353,6 +369,16 @@ export function ancestorsOf(tree: TreeNode[], path: string): TreeNode[] {
 export const isPage = (node: TreeNode) => node.kind === 'page'
 
 /** ツリーの中のページの数(子フォルダの中身も数える) */
+/** ツリーの上から最初のページ。ページが1つもなければ null */
+export function firstPage(nodes: TreeNode[]): string | null {
+  for (const n of nodes) {
+    if (isPage(n)) return n.path
+    const inner = firstPage(n.children)
+    if (inner) return inner
+  }
+  return null
+}
+
 export const countPages = (nodes: TreeNode[]): number => nodes.reduce((n, c) => n + (isPage(c) ? 1 : 0) + countPages(c.children), 0)
 
 /** ページの入っているフォルダ(ツリーの親)。ルートなら null。path は加工せず、ツリーの親子関係から求める */

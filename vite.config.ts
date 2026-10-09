@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   // Tauri から開くとき用に、ポートを固定する
-  server: { port: 5173, strictPort: true },
+  // src-tauri/ と core/ のビルド結果(target/)が変わるたびに見張らないようにする
+  server: { port: 5173, strictPort: true, watch: { ignored: ['**/src-tauri/**', '**/core/**'] } },
   clearScreen: false,
 })

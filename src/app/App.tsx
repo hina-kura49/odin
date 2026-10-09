@@ -5,6 +5,7 @@ import { useShortcut } from '@/lib/keyboard'
 import { captureShortcutFailed, watchAppLifecycle } from '@/lib/platform'
 import { useApp } from '@/store/app'
 import { CommandPalette } from './CommandPalette'
+import { FirstLaunch } from './FirstLaunch'
 import { openPalette, togglePalette } from './palette-store'
 import { PageView } from './PageView'
 import { Sidebar } from './Sidebar'
@@ -13,7 +14,6 @@ export function App() {
   const status = useApp((s) => s.status)
   const sidebarCollapsed = useApp((s) => s.sidebarCollapsed)
   const init = useApp((s) => s.init)
-  const openVault = useApp((s) => s.openVault)
   const toggleSidebar = useApp((s) => s.toggleSidebar)
 
   const handleExternalChange = useApp((s) => s.handleExternalChange)
@@ -46,16 +46,7 @@ export function App() {
   useShortcut({ key: 'f', mod: true }, openPalette, status === 'ready')
 
   if (status === 'loading') return null
-  if (status === 'no-vault') {
-    // 段階7でデザインの「初回起動」画面にする
-    return (
-      <div className="flex h-full items-center justify-center">
-        <button type="button" onClick={() => void openVault()} className="rounded-md bg-accent px-4 py-2 text-white">
-          フォルダを選択…
-        </button>
-      </div>
-    )
-  }
+  if (status === 'no-vault') return <FirstLaunch />
 
   return (
     <div className="relative flex h-full overflow-hidden">

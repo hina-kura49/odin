@@ -7,6 +7,7 @@ import {
   AlignLeft,
   Bold,
   Code,
+  File,
   FilePlus,
   GripVertical,
   Heading1,
@@ -71,7 +72,34 @@ export function EditorOverlays({ editor, bridge, pagePath, host }: Props) {
       <SlashMenu editor={editor} view={view} pagePath={pagePath} host={host} />
       <FormatToolbar view={view} host={host} bridge={bridge} />
       <DragHandle view={view} host={host} />
+      <EmptyPageHint view={view} />
     </>
+  )
+}
+
+/** 本文が空(空の段落が1つだけ)か */
+const isEmptyDoc = (doc: EditorView['state']['doc']) =>
+  doc.childCount === 1 && doc.firstChild?.type.name === 'paragraph' && doc.firstChild.content.size === 0
+
+/**
+ * 空のページ(デザイン 6)。本文の1行目の下に、書き始めの案内を出す。
+ * 入力の邪魔をしないよう、マウスの操作は下のエディタに通す。変換中は出さない(確定前の文字と重ねない)。
+ */
+function EmptyPageHint({ view }: { view: EditorView }) {
+  if (!isEmptyDoc(view.state.doc) || view.composing) return null
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-full flex flex-col items-center px-6 pt-16 text-center select-none" aria-hidden>
+      <File size={44} strokeWidth={1.25} className="mb-5 text-muted" />
+      <p className="mb-2 text-base font-semibold">ここから、書き始めましょう</p>
+      <p className="text-sm leading-relaxed text-muted">
+        どんな言葉でも構いません。
+        <br />
+        あなたの思考を、自由に。
+      </p>
+      <p className="mt-5 text-sm text-muted">
+        <kbd className="palette-keys">/</kbd> でブロックを追加
+      </p>
+    </div>
   )
 }
 

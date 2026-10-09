@@ -9,7 +9,7 @@ import { useApp } from '@/store/app'
  * - IME の変換中の Enter と Esc には反応しない
  * - 表示するのはバックエンドが返したタイトル(ツリーのもの)。改名できなかったときは元に戻る
  */
-export function PageTitle({ path, title }: { path: string; title: string }) {
+export function PageTitle({ path, title, visible }: { path: string; title: string; visible: boolean }) {
   const ref = useRef<HTMLHeadingElement>(null)
   // 決定(Enter)と、入力位置が外れたときの決定が重ならないように
   const settled = useRef(false)
@@ -22,10 +22,11 @@ export function PageTitle({ path, title }: { path: string; title: string }) {
     if (el && document.activeElement !== el) el.textContent = title
   }, [title, path])
 
-  // ページを作った直後などに、タイトルへ入力位置を移す
+  // ページを作った直後などに、タイトルへ入力位置を移す。
+  // 最初のエディタの準備ができるまでは隠している(隠れた要素には入力位置を移せない)ので、出てから移す
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el || titleFocus?.path !== path) return
+    if (!el || !visible || titleFocus?.path !== path) return
     settled.current = false
     el.focus()
     const range = document.createRange()
@@ -34,7 +35,7 @@ export function PageTitle({ path, title }: { path: string; title: string }) {
     const sel = window.getSelection()
     sel?.removeAllRanges()
     sel?.addRange(range)
-  }, [titleFocus, path])
+  }, [titleFocus, path, visible])
 
   const revert = () => {
     if (ref.current) ref.current.textContent = title
