@@ -1,6 +1,7 @@
 import { editorViewCtx, parserCtx, type Editor } from '@milkdown/kit/core'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { backend, toBackendError, type BackendError } from '@/backend'
+import { errorText, logError, textFor } from '@/lib/error-text'
 import { dirOf } from '@/lib/paths'
 import { useApp } from '@/store/app'
 import { loadMarkdown, serializeMarkdown, splitBom, splitFrontmatter, type SourceSnapshot } from './markdown'
@@ -136,7 +137,7 @@ export class EditorSession implements ActiveSession {
     }
     try {
       const result = await backend().writePage(job.path, job.content, version)
-      if (result.ok) {
+      if (result.status === 'ok') {
         if (isOpen()) {
           this.loaded!.version = result.version
           this.onDisk = job.content
@@ -187,6 +188,7 @@ export class EditorSession implements ActiveSession {
   private onError(job: Job, err: BackendError): void {
     const app = useApp.getState()
     const title = this.titleOf(job.path)
+    logError('savePage', err)
     if (err.kind === 'notFound') {
       app.showNotice({
         tone: 'warning',
@@ -222,7 +224,7 @@ export class EditorSession implements ActiveSession {
     app.showNotice({
       tone: 'warning',
       title: `「${title}」を保存できませんでした`,
-      body: err.message,
+      body: textFor('savePage', err.kind),
       actions: [{ label: 'もう一度保存', run: () => this.writeDetached(job.path, job.content, job.version) }],
     })
   }
@@ -234,7 +236,11 @@ export class EditorSession implements ActiveSession {
       const meta = await backend().createPage(dirOf(job.path) || null, title)
       const { version } = await backend().readPage(meta.path)
       const result = await backend().writePage(meta.path, job.content, version)
-      if (!result.ok) throw new Error('作り直したページに書き込めませんでした')
+      if (result.status === 'conflict') {
+        // 作り直した直後に、他のアプリが同じページを書き換えた
+        app.showNotice({ tone: 'warning', title: '作り直せませんでした', body: '作り直したページが、他のアプリで変更されました。', actions: [] })
+        return
+      }
       await app.refreshTree()
       if (this.loaded?.path === job.path) {
         this.unload()
@@ -242,7 +248,7 @@ export class EditorSession implements ActiveSession {
         await useApp.getState().openPage(meta.path)
       }
     } catch (e) {
-      app.showNotice({ tone: 'warning', title: '作り直せませんでした', body: toBackendError(e).message, actions: [] })
+      app.showNotice({ tone: 'warning', title: '作り直せませんでした', body: errorText('recreatePage', e), actions: [] })
     }
   }
 

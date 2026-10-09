@@ -3,7 +3,7 @@
 //! core の型は serde を持たない(core は変更しない)ので、ここで同じ形の型を持ち、core の型から変換する。
 //! - 変換では core の型の欄をすべて名指しで取り出す(`..` を使わない)。core に欄や種類が増えたら、ここがコンパイルできなくなる
 //! - TypeScript の型は、ここから ts-rs で src/backend/generated/ に書き出す(npm run gen:types)。手では書かない
-//! - 契約(src/backend/types.ts)と形が違うものは、ここで契約に合わせず、TauriBackend の境目で変換する
+//! - 契約(src/backend/types.ts)はここから作った型を使う。形が違う PageMeta.modifiedAt(u64 は bigint になる)だけ、TauriBackend で数値にそろえる
 
 use serde::Serialize;
 use ts_rs::TS;

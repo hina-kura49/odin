@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { backend, toBackendError } from '@/backend'
+import { backend } from '@/backend'
+import { errorText } from '@/lib/error-text'
 import { isComposing } from '@/lib/keyboard'
 import { hideCurrentWindow } from '@/lib/platform'
 
@@ -39,7 +40,7 @@ export function CaptureWindow() {
     } catch (e) {
       // 失敗したら文字を戻して知らせる(取り込めなかった文字を失わない)
       setText(value)
-      setError(`取り込めませんでした: ${toBackendError(e).message}`)
+      setError(`取り込めませんでした。${errorText('capture', e)}`)
     }
   }
 

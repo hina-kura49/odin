@@ -111,9 +111,11 @@ core/        Rust のバックエンド
 - `mock.ts`：MockBackend。メモリの中だけで動き、ブラウザ単体で使えます。
 - `mock-data.ts`、`mock-samples.ts`：Mock の最初のデータと、表示の確認用のページです。
 - `tauri.ts`：TauriBackend。Tauri の `invoke`（Rust の関数の呼び出し）とイベントを呼ぶだけの薄い層です。Rust 側との取り決め（コマンド名、エラーの形、`external-change` イベントなど）がファイルの先頭にあります。
-- `generated/`：Rust の型（`src-tauri/src/ipc.rs`）から ts-rs（Rust の型から TypeScript の型を作る道具）で作った型です。手で直さず、`npm run gen:types` で作り直します。契約と形が一致する型（`TreeNode`、`NodeKind`、`Snippet`、`SearchHit`）は、`types.ts` がこれをそのまま使います。一致しない型（`PageMeta` の `modifiedAt`、`WriteResult`、エラーの種類）は、`tauri.ts` で契約の形に変えます。
+- `generated/`：Rust の型（`src-tauri/src/ipc.rs`）から ts-rs（Rust の型から TypeScript の型を作る道具）で作った型です。手で直さず、`npm run gen:types` で作り直します。`types.ts` は、契約の型（`TreeNode`、`NodeKind`、`Snippet`、`SearchHit`、`WriteResult`、エラーの種類）としてこれをそのまま使います。`PageMeta` だけは、生成された `modifiedAt` が `bigint`（Rust の `u64`）なので契約は `number` のままにし、`tauri.ts` で数値にそろえます。
 - `mock-relay.ts`：Tauri のアプリを Mock のまま動かすときに、クイックキャプチャのウィンドウからメインのウィンドウの Mock へ取り込みを中継します。
 - `index.ts`：どのバックエンドを使うかを決め、`backend()` で返します。テスト用の `setBackend()` もあります。
+
+エラーの通知には、バックエンド（core）の文をそのまま出しません。本文はエラーの種類ごとに `src/lib/error-text.ts` で日本語の文を決め、場面によって言い方を変えたいものだけ上書きします。バックエンドの文は、開発者ツールの記録（console）にだけ残します。
 
 ### `src/editor`
 

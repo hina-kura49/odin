@@ -17,13 +17,13 @@ beforeEach(() => {
   backend = new TauriBackend()
 })
 
-describe('TauriBackend: Rust から届く形を契約の形にする', () => {
-  it('WriteResult', async () => {
+describe('TauriBackend', () => {
+  it('WriteResult は生成された形のまま返す', async () => {
     tauri.invoke.mockResolvedValueOnce({ status: 'ok', version: 'v2' })
-    expect(await backend.writePage('a.md', '本文', 'v1')).toEqual({ ok: true, version: 'v2' })
+    expect(await backend.writePage('a.md', '本文', 'v1')).toEqual({ status: 'ok', version: 'v2' })
     expect(tauri.invoke).toHaveBeenCalledWith('write_page', { path: 'a.md', content: '本文', baseVersion: 'v1' })
     tauri.invoke.mockResolvedValueOnce({ status: 'conflict' })
-    expect(await backend.writePage('a.md', '本文', 'v1')).toEqual({ ok: false, reason: 'conflict' })
+    expect(await backend.writePage('a.md', '本文', 'v1')).toEqual({ status: 'conflict' })
   })
 
   it('PageMeta の modifiedAt は数値にそろえる', async () => {
@@ -33,13 +33,15 @@ describe('TauriBackend: Rust から届く形を契約の形にする', () => {
     expect((await backend.createPage(null, 'b')).modifiedAt).toBe(5)
   })
 
-  it('失敗は BackendError にする。契約にない種類は io として扱い、元の種類を残す', async () => {
+  it('失敗は BackendError にする。indexOverlapsVault もそのままの種類で返す', async () => {
     tauri.invoke.mockRejectedValueOnce({ kind: 'nameOccupied', message: 'name occupied: a' })
     await expect(backend.renamePage('a.md', 'b')).rejects.toMatchObject({ kind: 'nameOccupied' })
     tauri.invoke.mockRejectedValueOnce({ kind: 'indexOverlapsVault', message: 'index dir overlaps vault' })
     const err = await backend.openVault().catch((e: unknown) => e)
     expect(err).toBeInstanceOf(BackendError)
-    expect(err).toMatchObject({ kind: 'io', rawKind: 'indexOverlapsVault' })
+    expect(err).toMatchObject({ kind: 'indexOverlapsVault' })
+    tauri.invoke.mockRejectedValueOnce({ kind: 'somethingNew', message: '新しい種類' })
+    await expect(backend.listTree()).rejects.toMatchObject({ kind: 'io', rawKind: 'somethingNew' })
   })
 
   it('captureToInbox は変更の知らせを自分では出さない(Rust 側が出す)', async () => {

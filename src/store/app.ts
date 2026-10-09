@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { backend, INBOX_PATH, isBackendError, toBackendError, type PageMeta, type TreeNode } from '@/backend'
+import { errorText, logError, textFor } from '@/lib/error-text'
 import CAPTURE_SHORTCUT from '@/capture/shortcut.json'
 import { activeSession, flushActive } from '@/editor/registry'
 
@@ -110,7 +111,7 @@ export const useApp = create<AppState>()((set, get) => ({
       get().showNotice({
         tone: 'warning',
         title: '保管庫を開けませんでした',
-        body: toBackendError(e).message,
+        body: errorText('loadVault', e),
         actions: [{ label: 'もう一度試す', run: () => get().init() }],
       })
       return
@@ -130,7 +131,13 @@ export const useApp = create<AppState>()((set, get) => ({
       set({ tree: [], recent: [], cache: {}, selectedPath: null })
       await get().init()
     } catch (e) {
-      get().showNotice({ tone: 'warning', title: 'フォルダを開けませんでした', body: toBackendError(e).message, actions: [] })
+      // 選んだフォルダを開けなかったときは、いまの保管庫のまま(切り替えは開けた後にだけ行う)
+      if (isBackendError(e, 'indexOverlapsVault')) {
+        logError('openVault', toBackendError(e))
+        get().showNotice({ tone: 'warning', title: 'このフォルダは保管庫にできません。別のフォルダを選んでください。', actions: [] })
+        return
+      }
+      get().showNotice({ tone: 'warning', title: 'フォルダを開けませんでした', body: errorText('openVault', e), actions: [] })
     }
   },
 
@@ -140,7 +147,7 @@ export const useApp = create<AppState>()((set, get) => ({
       const [tree, recent] = await Promise.all([backend().listTree(), backend().recentPages(RECENT_LIMIT)])
       set({ tree, recent })
     } catch (e) {
-      get().showNotice({ tone: 'warning', title: 'ページの一覧を読み直せませんでした', body: toBackendError(e).message, actions: [] })
+      get().showNotice({ tone: 'warning', title: 'ページの一覧を読み直せませんでした', body: errorText('refreshTree', e), actions: [] })
     }
   },
 
@@ -161,13 +168,14 @@ export const useApp = create<AppState>()((set, get) => ({
     } catch (e) {
       if (seq !== openSeq) return
       const err = toBackendError(e)
+      logError('openPage', err)
       if (err.kind === 'notUtf8') set({ page: { path, unreadable: 'notUtf8', loadId: ++loadSeq } })
       else if (err.kind === 'notFound') {
         set({ selectedPath: get().page?.path ?? null })
         get().showNotice({ tone: 'warning', title: 'このページは見つかりませんでした', body: '他のアプリで移動または削除された可能性があります。', actions: [] })
         void get().refreshTree()
       } else {
-        get().showNotice({ tone: 'warning', title: 'ページを開けませんでした', body: err.message, actions: [] })
+        get().showNotice({ tone: 'warning', title: 'ページを開けませんでした', body: textFor('openPage', err.kind), actions: [] })
       }
       return
     }
@@ -268,7 +276,7 @@ export const useApp = create<AppState>()((set, get) => ({
       await get().refreshTree()
       return meta
     } catch (e) {
-      get().showNotice({ tone: 'warning', title: 'ページを作れませんでした', body: toBackendError(e).message, actions: [] })
+      get().showNotice({ tone: 'warning', title: 'ページを作れませんでした', body: errorText('createPage', e), actions: [] })
       return null
     }
   },
@@ -288,12 +296,13 @@ export const useApp = create<AppState>()((set, get) => ({
       return meta
     } catch (e) {
       const err = toBackendError(e)
+      logError('renamePage', err)
       // タイトルはツリーから表示しているので、取り直せば元に戻る
       await get().refreshTree()
       get().showNotice({
         tone: 'warning',
         title: err.kind === 'nameOccupied' ? '同じ名前のページがあります' : '名前を変えられませんでした',
-        body: err.kind === 'nameOccupied' ? '別の名前にしてください。' : err.message,
+        body: err.kind === 'nameOccupied' ? '別の名前にしてください。' : textFor('renamePage', err.kind),
         actions: [],
       })
       return null
@@ -305,7 +314,7 @@ export const useApp = create<AppState>()((set, get) => ({
     try {
       await backend().deletePage(path)
     } catch (e) {
-      get().showNotice({ tone: 'warning', title: '削除できませんでした', body: toBackendError(e).message, actions: [] })
+      get().showNotice({ tone: 'warning', title: '削除できませんでした', body: errorText('deletePage', e), actions: [] })
       return
     }
     // 子ページも一緒に消える(ツリーの子孫)

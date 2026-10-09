@@ -182,3 +182,26 @@ describe('ツリーを取り直せなかったとき', () => {
     expect(useApp.getState().notice).toMatchObject({ tone: 'warning', title: 'ページの一覧を読み直せませんでした' })
   })
 })
+
+describe('保管庫にできないフォルダ', () => {
+  it('indexOverlapsVault なら切り替えずに知らせる', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const page = useApp.getState().page
+    const tree = useApp.getState().tree
+    vi.spyOn(mock, 'openVault').mockRejectedValueOnce(new BackendError('indexOverlapsVault', 'index dir overlaps vault: /x'))
+    await useApp.getState().openVault()
+    expect(useApp.getState()).toMatchObject({ status: 'ready', page, tree })
+    expect(useApp.getState().notice).toMatchObject({
+      tone: 'warning',
+      title: 'このフォルダは保管庫にできません。別のフォルダを選んでください。',
+    })
+    expect(JSON.stringify(useApp.getState().notice)).not.toContain('index dir')
+  })
+
+  it('ほかの失敗でも、バックエンドの文は通知に出さない', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(mock, 'createPage').mockRejectedValueOnce(new BackendError('io', 'Permission denied (os error 13)'))
+    await useApp.getState().createPage(null, 'x')
+    expect(useApp.getState().notice).toMatchObject({ title: 'ページを作れませんでした', body: 'ファイルの読み書きに失敗しました。もう一度お試しください。' })
+  })
+})

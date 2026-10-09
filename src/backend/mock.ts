@@ -128,10 +128,10 @@ export class MockBackend implements Backend {
     await this.delay()
     const page = this.page(path)
     if (page.readOnly) throw new BackendError('readOnly', `読み取り専用です: ${path}`)
-    if (page.version !== baseVersion) return { ok: false, reason: 'conflict' }
+    if (page.version !== baseVersion) return { status: 'conflict' }
     const next = this.put(path, content)
     this.touch(path)
-    return { ok: true, version: next.version }
+    return { status: 'ok', version: next.version }
   }
 
   async createPage(parentPath: string | null, title: string): Promise<PageMeta> {

@@ -15,25 +15,33 @@ export const INBOX_PATH = 'Inbox.md'
 
 // 契約の型のうち、Rust の型から作ったもの(src/backend/generated/。npm run gen:types で作り直す)と形が一致するものは、それをそのまま使う。
 // titleMatched: タイトルに検索語が当たったか。パレットの「ページ」と「本文の検索結果」の振り分けはこの値だけで行う
+import type { ErrorKind } from './generated/ErrorKind'
 import type { SearchHit } from './generated/SearchHit'
 import type { TreeNode } from './generated/TreeNode'
+import type { WriteResult } from './generated/WriteResult'
 export type { NodeKind } from './generated/NodeKind'
 export type { Snippet } from './generated/Snippet'
-export type { SearchHit, TreeNode }
+export type { SearchHit, TreeNode, WriteResult }
+/** エラーの種類。indexOverlapsVault: 索引用のフォルダと保管庫が重なっている(openVault で返る) */
+export type BackendErrorKind = ErrorKind
 
-// 次の3つは、Rust から作った型と契約の形が違う(報告済み。決まるまで契約のままにし、TauriBackend の境目で変換する)
-// - PageMeta.modifiedAt: 生成では bigint(Rust の u64)。JSON では数値で届く
-// - WriteResult: 生成では { status: "ok", version } | { status: "conflict" }
-// - BackendErrorKind: 生成(ErrorKind)には core の IndexOverlapsVault に当たる "indexOverlapsVault" がある。届いたら 'io' として扱う
+// PageMeta.modifiedAt は、生成された型では bigint(Rust の u64)。契約は number のままにし、TauriBackend で数値にそろえる
 export type PageMeta = { path: string; title: string; modifiedAt: number } // UNIX時刻のミリ秒
-export type WriteResult = { ok: true; version: string } | { ok: false; reason: 'conflict' }
-export type BackendErrorKind = 'notFound' | 'invalidPath' | 'notAPage' | 'notUtf8' | 'readOnly' | 'nameOccupied' | 'io'
 
-const KNOWN_KINDS: readonly string[] = ['notFound', 'invalidPath', 'notAPage', 'notUtf8', 'readOnly', 'nameOccupied', 'io']
+const KNOWN_KINDS: readonly string[] = [
+  'notFound',
+  'invalidPath',
+  'notAPage',
+  'notUtf8',
+  'readOnly',
+  'nameOccupied',
+  'indexOverlapsVault',
+  'io',
+] satisfies readonly BackendErrorKind[]
 
 export class BackendError extends Error {
   readonly kind: BackendErrorKind
-  /** 知らない種類が来たときの元の値(kind は 'io' として扱う) */
+  /** 届いた種類のそのままの値。知らない種類のときは kind を 'io' として扱い、元の値はここに残す */
   readonly rawKind: string
 
   constructor(kind: string, message?: string) {
